@@ -1,0 +1,61 @@
+---
+import BaseLayout from './BaseLayout.astro';
+import Sidebar from '@/components/layout/Sidebar.astro';
+import { getCurriculum } from '@/lib/curriculum';
+
+interface Props {
+  title: string;
+  description: string;
+}
+
+const { title, description } = Astro.props;
+const curriculum = await getCurriculum();
+---
+
+<BaseLayout title={title} description={description}>
+  <button
+    slot="header-start"
+    type="button"
+    data-sidebar-toggle
+    aria-controls="sidebar"
+    aria-expanded="false"
+    aria-label="Open navigation"
+    class="-ml-2 grid size-9 place-items-center rounded-md text-graphite-600 hover:bg-graphite-100 dark:text-graphite-400 dark:hover:bg-graphite-900 lg:hidden"
+  >
+    <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+      <path d="M4 6h16M4 12h16M4 18h16"></path>
+    </svg>
+  </button>
+
+  <div class="mx-auto flex max-w-[90rem] sm:px-2">
+    <Sidebar curriculum={curriculum} currentPath={Astro.url.pathname} />
+    <div class="flex min-w-0 flex-1 gap-10 px-4 py-10 sm:px-6 lg:px-10">
+      <main id="main" class="min-w-0 flex-1">
+        <slot />
+      </main>
+      <slot name="aside" />
+    </div>
+  </div>
+</BaseLayout>
+
+<script>
+  const toggle = document.querySelector<HTMLButtonElement>('[data-sidebar-toggle]')!;
+  const sidebar = document.querySelector<HTMLElement>('[data-sidebar]')!;
+
+  const setOpen = (open: boolean) => {
+    sidebar.classList.toggle('hidden', !open);
+    toggle.setAttribute('aria-expanded', String(open));
+    toggle.setAttribute('aria-label', open ? 'Close navigation' : 'Open navigation');
+  };
+
+  toggle.addEventListener('click', () => setOpen(sidebar.classList.contains('hidden')));
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && toggle.getAttribute('aria-expanded') === 'true') {
+      setOpen(false);
+      toggle.focus();
+    }
+  });
+  sidebar.addEventListener('click', (event) => {
+    if ((event.target as HTMLElement).closest('a')) setOpen(false);
+  });
+</script>

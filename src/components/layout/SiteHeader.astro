@@ -1,0 +1,25 @@
+---
+import ThemeToggle from './ThemeToggle.astro';
+import { href } from '@/lib/paths';
+---
+
+<header
+  class="sticky top-0 z-30 border-b border-graphite-200 bg-white/85 backdrop-blur dark:border-graphite-800 dark:bg-graphite-950/85"
+>
+  <div class="mx-auto flex h-14 max-w-[90rem] items-center gap-3 px-4 sm:px-6">
+    <slot name="start" />
+    <a href={href()} class="flex items-center gap-2.5 font-semibold tracking-tight text-heading">
+      <!-- Mark: a next-token distribution; the yellow bar is the token that was drawn. -->
+      <svg class="size-7 shrink-0" viewBox="0 0 28 28" aria-hidden="true">
+        <rect width="28" height="28" rx="6" fill="#2a0b45"></rect>
+        <rect x="6" y="7" width="4" height="15" rx="1" fill="#f2d21b"></rect>
+        <rect x="12" y="11" width="4" height="11" rx="1" fill="#3fafa3"></rect>
+        <rect x="18" y="16" width="4" height="6" rx="1" fill="#3fafa3" opacity="0.6"></rect>
+      </svg>
+      <span class="text-sm sm:text-base">AI Engineering from Scratch</span>
+    </a>
+    <div class="ml-auto">
+      <ThemeToggle />
+    </div>
+  </div>
+</header>

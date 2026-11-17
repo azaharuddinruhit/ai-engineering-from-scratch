@@ -1,0 +1,223 @@
+---
+title: Post-Retrieval & Grounding
+description: Rewrite queries before retrieval, rerank with cross-encoders after it, force citations, and verify every claim against its source before an answer ships.
+module: rag
+order: 4
+minutes: 24
+playground: Citation & Grounding Checker
+---
+
+import Callout from '@/components/content/Callout.astro';
+import FailureMode from '@/components/content/FailureMode.astro';
+import FlowDiagram from '@/components/content/FlowDiagram.astro';
+import GroundingLab from '@/components/visualizers/GroundingLab';
+
+## Mental model
+
+Retrieving the right chunks is necessary but not sufficient. Users ask vague, conversational questions. The best passage is often ranked fourth. And even with perfect context, a model can still blend sources, invent a figure or cite the wrong document. A production RAG pipeline adds a step **before** retrieval (fix the question), a step **after** it (fix the ranking), and a step **after generation** (check the answer).
+
+<FlowDiagram
+  caption="A grounded RAG pipeline. The verification step can block, regenerate or abstain, so unsupported claims never reach the user."
+  steps={[
+    { label: 'Question', detail: 'conversational, vague' },
+    { label: 'Transform', detail: 'rewrite · expand · HyDE', focus: true },
+    { label: 'Hybrid retrieve', detail: 'top 50' },
+    { label: 'Rerank', detail: 'cross-encoder → top 5', focus: true },
+    { label: 'Generate', detail: 'cite every claim' },
+    { label: 'Verify', detail: 'answer or abstain', focus: true },
+  ]}
+/>
+
+### Query transformation
+
+The user's words are rarely the best search query:
+
+- **Rewriting** turns a conversational follow-up ("and what about annual ones?") into a standalone query ("refund policy for annual plans") using the chat history. Without it, multi-turn RAG retrieves almost at random.
+- **Expansion / multi-query** generates several phrasings, retrieves for each and fuses the results (RRF again). It catches vocabulary mismatches.
+- **Decomposition** splits multi-hop questions ("Which plan has longer log retention, and what does it cost?") into sub-questions that are retrieved separately.
+- **HyDE** (Hypothetical Document Embeddings) asks a model to draft a plausible answer and embeds *that*, because a fake answer often sits closer to the real passage than the question does.
+
+Each technique adds a model call, and therefore latency and cost, before retrieval even starts. Use a small, fast model, and skip transformation when the query is already specific.
+
+### Reranking with cross-encoders
+
+The embedding search you've used so far is a **bi-encoder**: query and documents are embedded separately, so document vectors can be precomputed and searched in milliseconds. A **cross-encoder** reads the query and one passage *together* and outputs a relevance score. It sees interactions between the two texts that independent embeddings can't, so it is markedly more accurate. It is also far slower, because nothing can be precomputed and every (query, passage) pair is a model call.
+
+The standard pattern is to retrieve generously (say 50 candidates) with fast methods, rerank them with a cross-encoder, and keep the top 3–10. LLMs can also act as rerankers, at higher cost. A reranker's score is also a useful **abstention signal**: if even the best passage scores low, answer "I don't know" instead of generating from irrelevant context.
+
+### Grounded generation and citations
+
+Instruct the model to answer only from the provided sources, cite a source for every factual sentence, and say when the sources don't contain the answer. Number or name each source in the prompt (Module 1, lesson 3). Citations matter twice: users can check the answer, and *you* can check it automatically.
+
+### Checking for hallucinations
+
+Verification techniques, from cheapest to most thorough:
+
+1. **Lexical support checks.** Does the cited source contain the claim's key terms, and every number exactly? Free and deterministic, and good at catching wrong figures and wrong citations.
+2. **Quote verification.** Require a verbatim supporting quote per claim, then check it with a substring match. A model can invent a sentence, but it can't fake a quote that passes an exact match.
+3. **Entailment (NLI) models or an LLM judge.** Ask whether the source actually *implies* the claim. This catches subtle distortions that lexical checks miss, at the cost of another model call (Module 5 covers judge design).
+
+## Playground
+
+The checker splits a generated answer into sentences and tests each against the sources it cites.
+
+1. **Faithful**: every sentence is supported, so faithfulness is 100%.
+2. **Wrong figure**: "3 business days" shares almost every word with source [1], so word overlap alone would pass it. The exact number check catches it.
+3. **Wrong citation**: the claim is true but cites [2]. The checker identifies [3] as the real support.
+4. **Unsupported claim**: "instantly by bank transfer" appears in no source. Now raise the threshold to 90% on the **Faithful** answer. Correct paraphrases ("go back" instead of "returned") start failing. Lexical checks punish paraphrase, which is why production systems add an entailment or judge model on top.
+
+<GroundingLab client:visible />
+
+## Production pattern: quote-verified citations
+
+Ask for the answer as structured output (Module 1, lesson 4) in which every claim carries a source id **and a verbatim quote**. Then verify deterministically before showing anything. Claims whose quote can't be found are dropped, and if too few claims survive, the system abstains:
+
+```ts
+import { z } from 'zod';
+
+export const GroundedAnswer = z.object({
+  answerable: z.boolean().describe('false when the sources do not contain the answer'),
+  claims: z.array(
+    z.object({
+      text: z.string().min(1).describe('One factual sentence of the answer'),
+      sourceId: z.string().describe('Id of the source that supports the sentence'),
+      quote: z.string().min(1).describe('Text copied verbatim from that source that supports the sentence'),
+    }),
+  ),
+});
+export type GroundedAnswer = z.infer<typeof GroundedAnswer>;
+
+export interface RetrievedSource {
+  id: string;
+  text: string;
+}
+
+export interface VerifiedClaim {
+  text: string;
+  sourceId: string;
+  quote: string;
+  verified: boolean;
+  failure?: 'unknown_source' | 'quote_not_found';
+}
+
+export type GroundedResult =
+  | { status: 'answered'; text: string; claims: VerifiedClaim[] }
+  | { status: 'abstained'; reason: string };
+
+const normalize = (text: string) => text.replace(/\s+/g, ' ').trim().toLowerCase();
+
+export function verifyClaims(answer: GroundedAnswer, sources: readonly RetrievedSource[]): VerifiedClaim[] {
+  const sourceText = new Map(sources.map((s) => [s.id, normalize(s.text)]));
+  return answer.claims.map((claim): VerifiedClaim => {
+    const text = sourceText.get(claim.sourceId);
+    if (text === undefined) return { ...claim, verified: false, failure: 'unknown_source' };
+    return text.includes(normalize(claim.quote))
+      ? { ...claim, verified: true }
+      : { ...claim, verified: false, failure: 'quote_not_found' };
+  });
+}
+
+export function finalizeAnswer(
+  answer: GroundedAnswer,
+  sources: readonly RetrievedSource[],
+  minVerifiedShare = 1,
+): GroundedResult {
+  if (!answer.answerable || answer.claims.length === 0) {
+    return { status: 'abstained', reason: 'The sources do not contain the answer.' };
+  }
+  const claims = verifyClaims(answer, sources);
+  const verified = claims.filter((c) => c.verified);
+  if (verified.length / claims.length < minVerifiedShare) {
+    return { status: 'abstained', reason: `Only ${verified.length} of ${claims.length} claims could be verified.` };
+  }
+  return { status: 'answered', text: verified.map((c) => `${c.text} [${c.sourceId}]`).join(' '), claims };
+}
+```
+
+The Python version with Pydantic:
+
+```python
+import re
+from dataclasses import dataclass
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+
+class Claim(BaseModel):
+    text: str = Field(min_length=1, description="One factual sentence of the answer")
+    source_id: str = Field(description="Id of the source that supports the sentence")
+    quote: str = Field(min_length=1, description="Text copied verbatim from that source")
+
+
+class GroundedAnswer(BaseModel):
+    answerable: bool = Field(description="false when the sources do not contain the answer")
+    claims: list[Claim]
+
+
+@dataclass(frozen=True)
+class VerifiedClaim:
+    claim: Claim
+    verified: bool
+    failure: Literal["unknown_source", "quote_not_found"] | None = None
+
+
+def _normalize(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip().lower()
+
+
+def verify_claims(answer: GroundedAnswer, sources: dict[str, str]) -> list[VerifiedClaim]:
+    normalized = {source_id: _normalize(text) for source_id, text in sources.items()}
+    results: list[VerifiedClaim] = []
+    for claim in answer.claims:
+        source = normalized.get(claim.source_id)
+        if source is None:
+            results.append(VerifiedClaim(claim, False, "unknown_source"))
+        elif _normalize(claim.quote) in source:
+            results.append(VerifiedClaim(claim, True))
+        else:
+            results.append(VerifiedClaim(claim, False, "quote_not_found"))
+    return results
+
+
+def finalize_answer(
+    answer: GroundedAnswer, sources: dict[str, str], min_verified_share: float = 1.0
+) -> dict[str, object]:
+    if not answer.answerable or not answer.claims:
+        return {"status": "abstained", "reason": "The sources do not contain the answer."}
+    checked = verify_claims(answer, sources)
+    verified = [c for c in checked if c.verified]
+    if len(verified) / len(checked) < min_verified_share:
+        return {
+            "status": "abstained",
+            "reason": f"Only {len(verified)} of {len(checked)} claims could be verified.",
+        }
+    text = " ".join(f"{c.claim.text} [{c.claim.source_id}]" for c in verified)
+    return {"status": "answered", "text": text, "claims": checked}
+```
+
+<Callout type="note" title="A verified quote is necessary, not sufficient">
+Quote verification proves the cited text exists. It doesn't prove the sentence follows from it. For high-stakes answers, run an entailment model or LLM judge on each (quote, claim) pair. That check is cheap, because the quote is short.
+</Callout>
+
+## Failure modes
+
+<FailureMode title="Context-free follow-up questions" symptom="The first question works; follow-ups like “what about the annual one?” retrieve irrelevant chunks.">
+**Why:** the raw follow-up was used as the search query. **Mitigation:** rewrite each turn into a standalone query using the conversation history, and log both the original and the rewritten query.
+</FailureMode>
+
+<FailureMode title="Right document, wrong rank" symptom="The answer chunk is retrieved at position 8, but only the top 3 reach the prompt.">
+**Why:** first-stage retrieval optimises for speed, not precision. **Mitigation:** over-fetch candidates and rerank them with a cross-encoder. Track the answer's rank in your retrieval evals, not just whether it was found.
+</FailureMode>
+
+<FailureMode title="Fabricated or wrong figures" symptom="Answers contain numbers that appear in no source, or the right number attached to the wrong plan.">
+**Why:** the model blended its training data with the context, or mixed up two sources. **Mitigation:** check every number exactly against cited sources, and block or regenerate on a mismatch.
+</FailureMode>
+
+<FailureMode title="Citation laundering" symptom="Every sentence has a citation, but some cited sources say something different.">
+**Why:** the model learned that citations are expected and attaches them by habit. **Mitigation:** verify citations (quotes, lexical support, entailment). Treat an unverifiable citation as worse than none, because it borrows credibility.
+</FailureMode>
+
+<FailureMode title="Answering when it should abstain" symptom="Questions outside the knowledge base get confident, plausible, wrong answers.">
+**Why:** the prompt never offered a way out, and nothing checked whether retrieval found anything relevant. **Mitigation:** allow `answerable: false`, abstain when the best reranker score is below a threshold, and measure the abstention rate on deliberately unanswerable eval questions.
+</FailureMode>

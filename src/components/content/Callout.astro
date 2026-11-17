@@ -1,0 +1,21 @@
+---
+interface Props {
+  type?: 'note' | 'tip' | 'warning';
+  title?: string;
+}
+
+const { type = 'note', title } = Astro.props;
+
+const styles = {
+  note: { label: 'Note', box: 'border-graphite-200 bg-graphite-50 dark:border-graphite-800 dark:bg-graphite-900', heading: 'text-heading' },
+  tip: { label: 'Production tip', box: 'border-teal-200 bg-teal-50 dark:border-teal-900 dark:bg-teal-950/50', heading: 'text-teal-800 dark:text-teal-300' },
+  warning: { label: 'Warning', box: 'border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/40', heading: 'text-amber-800 dark:text-amber-300' },
+}[type];
+---
+
+<aside class:list={['not-prose my-6 rounded-lg border px-5 py-4 leading-relaxed', styles.box]}>
+  <p class:list={['mb-1 font-semibold', styles.heading]}>{title ?? styles.label}</p>
+  <div class="text-graphite-700 dark:text-graphite-300 [&_code]:rounded [&_code]:bg-black/5 [&_code]:px-1 [&_code]:font-mono [&_code]:text-[0.85em] dark:[&_code]:bg-white/10 [&_p+p]:mt-2">
+    <slot />
+  </div>
+</aside>

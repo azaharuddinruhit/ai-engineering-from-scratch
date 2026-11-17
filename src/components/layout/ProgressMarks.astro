@@ -1,0 +1,22 @@
+---
+/**
+ * Hydrates static progress markers from localStorage:
+ *  - [data-progress-lesson="<id>"]  shown only when that lesson is complete
+ *  - [data-progress-count="<id> <id> …"]  text becomes "<done>/<total> complete"
+ */
+---
+
+<script>
+  import { onProgressChange } from '@/lib/progress';
+
+  onProgressChange((completed) => {
+    for (const mark of document.querySelectorAll<HTMLElement>('[data-progress-lesson]')) {
+      mark.hidden = !completed.has(mark.dataset.progressLesson!);
+    }
+    for (const counter of document.querySelectorAll<HTMLElement>('[data-progress-count]')) {
+      const ids = counter.dataset.progressCount!.split(' ');
+      const done = ids.filter((id) => completed.has(id)).length;
+      counter.textContent = `${done}/${ids.length} complete`;
+    }
+  });
+</script>

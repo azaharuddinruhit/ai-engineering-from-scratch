@@ -1,0 +1,37 @@
+---
+interface Layer {
+  label: string;
+  detail: string;
+  /** Visually emphasise the layers the lesson focuses on. */
+  focus?: boolean;
+}
+
+interface Props {
+  /** Top layer first. */
+  layers: Layer[];
+  caption: string;
+}
+
+const { layers, caption } = Astro.props;
+---
+
+<figure class="not-prose my-8">
+  <ol class="space-y-1.5">
+    {
+      layers.map((layer) => (
+        <li
+          class:list={[
+            'flex flex-col gap-0.5 rounded-lg border px-4 py-2.5 sm:flex-row sm:items-baseline sm:gap-4',
+            layer.focus
+              ? 'border-teal-400 bg-teal-50 dark:border-teal-500 dark:bg-teal-950/50'
+              : 'border-graphite-200 bg-graphite-50 dark:border-graphite-800 dark:bg-graphite-900',
+          ]}
+        >
+          <span class="text-sm font-semibold text-heading sm:w-48 sm:shrink-0">{layer.label}</span>
+          <span class="text-xs text-graphite-600 dark:text-graphite-400">{layer.detail}</span>
+        </li>
+      ))
+    }
+  </ol>
+  <figcaption class="mt-3 text-center text-xs text-muted">{caption}</figcaption>
+</figure>

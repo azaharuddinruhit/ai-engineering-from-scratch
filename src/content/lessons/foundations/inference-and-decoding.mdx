@@ -1,0 +1,248 @@
+---
+title: Inference & Decoding Mechanics
+description: How text becomes billable tokens, how a model picks the next one, what temperature, top-k and top-p really do, and how responses stream over SSE.
+module: foundations
+order: 2
+minutes: 25
+playground: Token & Sampling Simulator
+---
+
+import Callout from '@/components/content/Callout.astro';
+import FailureMode from '@/components/content/FailureMode.astro';
+import FlowDiagram from '@/components/content/FlowDiagram.astro';
+import TokenSamplingSimulator from '@/components/visualizers/TokenSamplingSimulator';
+
+## Mental model
+
+A language model does one thing: given a sequence of tokens, it outputs a **score (logit) for every token in its vocabulary**, saying how likely each one is to come next. Everything else is a loop around that step:
+
+<FlowDiagram
+  caption="One decoding step. Generation repeats it, feeding each chosen token back in until a stop condition is met."
+  steps={[
+    { label: 'Text', detail: 'your prompt' },
+    { label: 'Tokenizer', detail: 'text → token ids', focus: true },
+    { label: 'Model forward pass', detail: 'ids → logits' },
+    { label: 'Sampler', detail: 'temperature · top-k · top-p', focus: true },
+    { label: 'Next token', detail: 'appended to context' },
+    { label: 'Stream', detail: 'SSE chunk to client', focus: true },
+  ]}
+/>
+
+Three consequences follow, and they shape most of AI engineering:
+
+- **You pay per token, not per word or request.** Input and output are counted and priced separately. Output usually costs several times more, because each output token needs its own sequential forward pass.
+- **Output is chosen by sampling.** The same prompt can produce different text, and the knobs that control randomness act on the logits, not on "creativity".
+- **Latency is mostly output length.** Input is processed in parallel (prefill), but output is generated one token at a time (decode). A 2,000-token answer is slow no matter how fast the first token arrives.
+
+### Tokenization economics
+
+Tokenizers split text into subword units learned from training data. Common English words are usually one token, often with the preceding space attached (`" world"`). Rare words, long identifiers, numbers and non-Latin scripts split into more pieces. Practical rules of thumb:
+
+- English prose averages roughly **4 characters per token**. Code, JSON and non-English text are usually more expensive per character.
+- Whitespace, markup and verbose JSON keys are not free. Pretty-printed JSON in a prompt can cost noticeably more than compact JSON.
+- **Different models use different tokenizers.** The same prompt can cost a different number of tokens after a model migration. Measure with your provider's token-counting endpoint; never estimate production costs from character counts.
+
+### Context windows
+
+The context window is the maximum number of tokens the model can attend to in one call. It is a **shared budget**: input tokens plus the output you allow must fit inside it. Long windows (hundreds of thousands of tokens up to a million) are now common, but you pay for every input token on every call, and recall degrades for information buried in the middle of a long context (next lesson).
+
+### Temperature, top-k and top-p
+
+Given logits $z_i$, a sampler turns them into a probability distribution and draws one token. With temperature $T$, the softmax gives token $i$ the probability
+
+$$
+p_i = \frac{\exp(z_i / T)}{\sum_j \exp(z_j / T)}
+$$
+
+The sampler then applies three controls:
+
+1. **Temperature** divides every logit before the softmax. Below 1, the distribution sharpens toward the top token. Above 1, it flattens and unlikely tokens gain mass. At 0, decoding becomes *greedy*: always take the top token.
+2. **Top-k** keeps only the *k* highest-probability tokens.
+3. **Top-p (nucleus sampling)** keeps the smallest set of top tokens whose cumulative probability reaches *p*. The set is small when the model is confident and large when it is unsure, which makes top-p adaptive where top-k is not.
+
+After filtering, the remaining probabilities are renormalised and one token is drawn.
+
+<Callout type="warning" title="Where you can actually set these knobs">
+Inference servers for open-weights models (vLLM, TGI, llama.cpp, Ollama) expose all three. Many current hosted reasoning models reject explicit `temperature`, `top_p` and `top_k` values and manage sampling internally. Check your provider's documentation before relying on them. The mechanics still matter: they explain why outputs vary, and they are the controls you'll use whenever you serve a model yourself.
+</Callout>
+
+### Temperature 0 is not deterministic
+
+Even greedy decoding can produce different outputs for identical requests. Floating-point addition is not associative. Batched inference changes the order of operations depending on which other requests share your batch, and mixture-of-experts routing can flip on near-ties. Design for this: cache responses when you need repeatability, and write evals that tolerate variation instead of asserting exact strings.
+
+### Streaming over SSE
+
+Waiting 20 seconds for a complete answer feels broken. Streaming sends tokens as they are generated, usually as **Server-Sent Events (SSE)**: a long-lived HTTP response with `Content-Type: text/event-stream`, made of events separated by blank lines:
+
+```text
+event: content_delta
+data: {"text":"The capital"}
+
+event: content_delta
+data: {"text":" of France is Paris."}
+
+event: message_stop
+data: {"finish_reason":"stop","output_tokens":9}
+```
+
+Two latency metrics now matter: **time to first token (TTFT)**, which is what users perceive as responsiveness, and **output tokens per second**, which sets how long the full answer takes.
+
+## Playground
+
+Use part 1 to build intuition for token costs. Paste some JSON, then a paragraph of another language, and compare characters per token.
+
+In part 2, try these experiments:
+
+1. **Factual**, temperature 1: the model is already confident, so sampling rarely changes the answer. Now push temperature to 2 and sample 1,000 times. How often do you get something other than `Paris`?
+2. **Creative**: the distribution is flat. Lower the temperature and watch the entropy fall as the top candidates take over.
+3. **Top-p vs. top-k**: set top-p to 0.9 and switch between Factual and Creative. Top-p keeps 1–2 tokens in the first case and many in the second. A fixed top-k can't adapt like that.
+4. **JSON value**: why do most structured-extraction pipelines decode with low temperature?
+
+<TokenSamplingSimulator client:visible />
+
+## Production pattern: consuming a token stream
+
+Provider SDKs parse their own streams, so use them when you can. You still need to understand the wire format: when you build a proxy, debug a stalled stream or call an inference server directly, you will be reading raw SSE. A correct parser has to handle events split across network chunks, multi-line `data:` fields and keep-alive comments:
+
+```ts
+export interface SseEvent {
+  event: string;
+  data: string;
+}
+
+/** Parses a text/event-stream body into events, buffering across chunk boundaries. */
+export async function* parseSse(body: ReadableStream<Uint8Array>): AsyncGenerator<SseEvent> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      // stream: true keeps multi-byte UTF-8 characters split across chunks intact.
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split(/\r?\n\r?\n/);
+      buffer = events.pop() ?? ''; // the last piece may be incomplete
+      for (const raw of events) {
+        const event = parseEvent(raw);
+        if (event) yield event;
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function parseEvent(raw: string): SseEvent | null {
+  let event = 'message';
+  const data: string[] = [];
+  for (const line of raw.split(/\r?\n/)) {
+    if (line === '' || line.startsWith(':')) continue; // keep-alive comment
+    const colon = line.indexOf(':');
+    const field = colon === -1 ? line : line.slice(0, colon);
+    const value = colon === -1 ? '' : line.slice(colon + 1).replace(/^ /, '');
+    if (field === 'event') event = value;
+    else if (field === 'data') data.push(value);
+  }
+  return data.length > 0 ? { event, data: data.join('\n') } : null;
+}
+
+/** Streams text to `onText`, measures TTFT, and lets the caller cancel upstream generation. */
+export async function streamCompletion(
+  url: string,
+  body: unknown,
+  onText: (text: string) => void,
+  signal: AbortSignal,
+): Promise<{ ttftMs: number | null; finishReason: string | null }> {
+  const started = performance.now();
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
+    body: JSON.stringify(body),
+    signal, // aborting closes the connection so the server stops generating (and billing)
+  });
+  if (!response.ok || !response.body) throw new Error(`Stream failed: HTTP ${response.status}`);
+
+  let ttftMs: number | null = null;
+  let finishReason: string | null = null;
+  for await (const event of parseSse(response.body)) {
+    const payload = JSON.parse(event.data);
+    if (event.event === 'content_delta') {
+      ttftMs ??= performance.now() - started;
+      onText(payload.text);
+    } else if (event.event === 'message_stop') {
+      finishReason = payload.finish_reason;
+    }
+  }
+  return { ttftMs, finishReason };
+}
+```
+
+In Python, keep the parser independent of the HTTP client by feeding it any iterator of text chunks:
+
+```python
+from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
+import re
+
+_EVENT_BOUNDARY = re.compile(r"\r?\n\r?\n")
+
+
+@dataclass(frozen=True)
+class SseEvent:
+    event: str
+    data: str
+
+
+def parse_sse(chunks: Iterable[str]) -> Iterator[SseEvent]:
+    """Yields events from decoded text chunks, buffering across chunk boundaries."""
+    buffer = ""
+    for chunk in chunks:
+        buffer += chunk
+        *complete, buffer = _EVENT_BOUNDARY.split(buffer)
+        for raw in complete:
+            if (event := _parse_event(raw)) is not None:
+                yield event
+
+
+def _parse_event(raw: str) -> SseEvent | None:
+    event, data = "message", []
+    for line in raw.splitlines():
+        if not line or line.startswith(":"):
+            continue
+        field, _, value = line.partition(":")
+        value = value.removeprefix(" ")
+        if field == "event":
+            event = value
+        elif field == "data":
+            data.append(value)
+    return SseEvent(event, "\n".join(data)) if data else None
+```
+
+With `httpx`, feed it `response.iter_text()`. With an async client, the same logic works as an `async def` generator over `aiter_text()`.
+
+<Callout type="tip" title="Always check why generation stopped">
+The final event tells you whether the model finished naturally or hit the output limit. A response cut off at the limit can look complete to a user. Treat `length` (or your provider's equivalent) as an error state in any pipeline that parses the output.
+</Callout>
+
+## Failure modes
+
+<FailureMode title="Context overflow" symptom="Requests start failing with 400 errors, or answers get shorter and shorter, as conversations grow.">
+**Why:** input plus the requested output exceeds the context window, or the output allowance gets squeezed. **Mitigation:** count tokens before every call. Reserve output space explicitly, and trim or summarise history before you hit the limit, not after.
+</FailureMode>
+
+<FailureMode title="Silent truncation" symptom="JSON fails to parse intermittently, or summaries end mid-sentence.">
+**Why:** generation hit the output limit and the code ignored the stop reason. **Mitigation:** check the stop reason on every response and retry with a larger budget or a smaller task. Monitor the rate of `length` stops as a metric.
+</FailureMode>
+
+<FailureMode title="Assuming determinism" symptom="Snapshot tests flake; two users see different answers to the same question.">
+**Why:** sampling randomness, plus non-determinism even at temperature 0. **Mitigation:** cache responses where you need repeatability. Write evals with tolerant assertions (Module 5) instead of exact-match snapshots.
+</FailureMode>
+
+<FailureMode title="Cost drift after a model migration" symptom="Same traffic, same prompts, higher bill.">
+**Why:** the new model's tokenizer produces more tokens for the same text, or the model is more verbose. **Mitigation:** re-measure token counts and average output length on a sample of real traffic before switching. Track cost per completed task, not cost per token.
+</FailureMode>
+
+<FailureMode title="Broken or wasteful streams" symptom="Tokens arrive in large bursts, garbled characters appear, or the bill keeps growing after users close the tab.">
+**Why:** a reverse proxy buffers the response, multi-byte characters are split across chunks, or a client disconnect never cancels the upstream request. **Mitigation:** disable proxy buffering for SSE routes and decode with a streaming UTF-8 decoder. Propagate cancellation (`AbortSignal`) all the way to the model call.
+</FailureMode>

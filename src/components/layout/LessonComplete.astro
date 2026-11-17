@@ -1,0 +1,39 @@
+---
+interface Props {
+  lessonId: string;
+}
+
+const { lessonId } = Astro.props;
+---
+
+<div
+  class="flex flex-col items-start gap-3 rounded-lg border border-graphite-200 bg-graphite-50 p-5 sm:flex-row sm:items-center sm:justify-between dark:border-graphite-800 dark:bg-graphite-900/50"
+>
+  <p class="text-graphite-700 dark:text-graphite-300">
+    Played with the lab and read the failure modes? Mark the lesson done to track your progress.
+  </p>
+  <button
+    type="button"
+    data-complete-lesson={lessonId}
+    aria-pressed="false"
+    class="shrink-0 rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 aria-pressed:bg-emerald-700 aria-pressed:hover:bg-emerald-800"
+  >
+    Mark as complete
+  </button>
+</div>
+
+<script>
+  import { onProgressChange, setLessonCompleted } from '@/lib/progress';
+
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-complete-lesson]')) {
+    const lessonId = button.dataset.completeLesson!;
+    button.addEventListener('click', () => {
+      setLessonCompleted(lessonId, button.getAttribute('aria-pressed') !== 'true');
+    });
+    onProgressChange((completed) => {
+      const done = completed.has(lessonId);
+      button.setAttribute('aria-pressed', String(done));
+      button.textContent = done ? 'Completed' : 'Mark as complete';
+    });
+  }
+</script>

@@ -1,0 +1,140 @@
+---
+import type { ModuleWithLessons } from '@/lib/curriculum';
+import { moduleHref } from '@/lib/paths';
+
+interface Props {
+  curriculum: ModuleWithLessons[];
+  currentPath: string;
+}
+
+const { curriculum, currentPath } = Astro.props;
+---
+
+<aside
+  id="sidebar"
+  data-sidebar
+  class="fixed inset-x-0 top-14 bottom-0 z-20 hidden overflow-y-auto border-graphite-200 bg-white px-4 pb-10 dark:border-graphite-800 dark:bg-graphite-950 lg:sticky lg:block lg:h-[calc(100vh-3.5rem)] lg:w-72 lg:shrink-0 lg:border-r"
+>
+  <div class="sticky top-0 bg-white pb-3 pt-5 dark:bg-graphite-950">
+    <label for="lesson-filter" class="sr-only">Search lessons</label>
+    <div class="relative">
+      <input
+        id="lesson-filter"
+        data-lesson-filter
+        type="search"
+        autocomplete="off"
+        placeholder="Search lessons"
+        class="w-full rounded-md border border-graphite-200 bg-graphite-50 py-1.5 pl-3 pr-8 text-sm placeholder:text-graphite-500 dark:placeholder:text-graphite-400 dark:border-graphite-800 dark:bg-graphite-900"
+      />
+      <kbd
+        class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-graphite-300 px-1.5 font-mono text-[10px] text-muted dark:border-graphite-700"
+        aria-hidden="true">/</kbd
+      >
+    </div>
+  </div>
+
+  <nav aria-label="Curriculum" class="space-y-6 text-sm">
+    {
+      curriculum.map(({ module, lessons }) => (
+        <section data-module-group>
+          <h2 class="mb-2 flex items-start justify-between gap-2 text-[0.8125rem] font-semibold leading-snug">
+            {module.data.status === 'available' ? (
+              <a href={moduleHref(module.id)} class="text-heading hover:text-teal-700 dark:hover:text-teal-300">
+                {module.data.number}. {module.data.title}
+              </a>
+            ) : (
+              <span class="text-muted">
+                {module.data.number}. {module.data.title}
+              </span>
+            )}
+            {module.data.status === 'upcoming' && (
+              <span class="mt-px shrink-0 whitespace-nowrap rounded bg-graphite-100 px-1.5 py-0.5 text-[10px] font-medium text-graphite-600 dark:bg-graphite-900 dark:text-graphite-400">
+                Coming soon
+              </span>
+            )}
+          </h2>
+          <ul class="space-y-0.5 border-l border-graphite-200 dark:border-graphite-800">
+            {module.data.status === 'available'
+              ? lessons.map((lesson) => (
+                  <li data-filter-item data-search={`${lesson.title} ${lesson.description}`.toLowerCase()}>
+                    <a
+                      href={lesson.href}
+                      data-lesson-id={lesson.id}
+                      aria-current={currentPath === lesson.href ? 'page' : undefined}
+                      class="-ml-px flex items-center justify-between gap-2 border-l border-transparent py-1 pl-3 pr-1 text-graphite-700 hover:border-graphite-400 hover:text-graphite-900 aria-[current=page]:border-teal-600 aria-[current=page]:font-medium aria-[current=page]:text-teal-600 dark:text-graphite-300 dark:hover:text-white dark:aria-[current=page]:border-teal-400 dark:aria-[current=page]:text-teal-400"
+                    >
+                      <span>{lesson.title}</span>
+                      <svg
+                        data-check
+                        class="hidden size-4 shrink-0 text-emerald-600 dark:text-emerald-400"
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                        role="img"
+                        aria-label="Completed"
+                      >
+                        <path
+                          fill-rule="evenodd"
+                          d="M16.7 5.3a1 1 0 0 1 0 1.4l-8 8a1 1 0 0 1-1.4 0l-4-4a1 1 0 1 1 1.4-1.4L8 12.6l7.3-7.3a1 1 0 0 1 1.4 0Z"
+                          clip-rule="evenodd"
+                        />
+                      </svg>
+                    </a>
+                  </li>
+                ))
+              : module.data.topics.map((topic) => (
+                  <li
+                    data-filter-item
+                    data-search={topic.toLowerCase()}
+                    class="py-1 pl-3 text-muted"
+                  >
+                    {topic}
+                  </li>
+                ))}
+          </ul>
+        </section>
+      ))
+    }
+    <p data-filter-empty hidden class="text-muted">No lessons match your search.</p>
+  </nav>
+</aside>
+
+<script>
+  import { onProgressChange } from '@/lib/progress';
+
+  const sidebar = document.querySelector<HTMLElement>('[data-sidebar]')!;
+  const filter = sidebar.querySelector<HTMLInputElement>('[data-lesson-filter]')!;
+  const empty = sidebar.querySelector<HTMLElement>('[data-filter-empty]')!;
+
+  filter.addEventListener('input', () => {
+    const query = filter.value.trim().toLowerCase();
+    let anyVisible = false;
+    for (const group of sidebar.querySelectorAll<HTMLElement>('[data-module-group]')) {
+      let groupVisible = false;
+      for (const item of group.querySelectorAll<HTMLElement>('[data-filter-item]')) {
+        const match = item.dataset.search!.includes(query);
+        item.hidden = !match;
+        groupVisible ||= match;
+      }
+      group.hidden = !groupVisible;
+      anyVisible ||= groupVisible;
+    }
+    empty.hidden = anyVisible;
+  });
+
+  // "/" focuses search unless the learner is already typing somewhere.
+  document.addEventListener('keydown', (event) => {
+    const target = event.target as HTMLElement;
+    const typing = target.closest('input, textarea, select, [contenteditable="true"]');
+    if (event.key === '/' && !typing) {
+      event.preventDefault();
+      sidebar.classList.remove('hidden');
+      filter.focus();
+    }
+  });
+
+  onProgressChange((completed) => {
+    for (const link of sidebar.querySelectorAll<HTMLElement>('[data-lesson-id]')) {
+      link.querySelector('[data-check]')!.classList.toggle('hidden', !completed.has(link.dataset.lessonId!));
+    }
+  });
+</script>

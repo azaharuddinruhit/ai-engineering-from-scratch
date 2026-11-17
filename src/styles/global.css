@@ -1,0 +1,153 @@
+@import 'tailwindcss';
+@plugin '@tailwindcss/typography';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Palette: drawn from viridis, the default colour map of scientific plotting, because every lab here is a plot.
+ * graphite = cool neutrals, teal = the accent, mark = viridis yellow for chosen/highlighted values,
+ * heading = viridis violet ink (near-white in dark mode).
+ */
+@theme {
+  --font-sans: 'IBM Plex Sans Variable', 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --color-graphite-50: #f7f8fa;
+  --color-graphite-100: #eef0f4;
+  --color-graphite-200: #dfe2e9;
+  --color-graphite-300: #c9ced8;
+  --color-graphite-400: #99a0ae;
+  --color-graphite-500: #6a7080;
+  --color-graphite-600: #4f5566;
+  --color-graphite-700: #3b4050;
+  --color-graphite-800: #282c37;
+  --color-graphite-900: #1b1f28;
+  --color-graphite-950: #13161d;
+
+  --color-teal-50: #eaf6f4;
+  --color-teal-100: #d2eeea;
+  --color-teal-200: #a6ddd6;
+  --color-teal-300: #6fc6bb;
+  --color-teal-400: #3fafa3;
+  --color-teal-500: #22938a;
+  --color-teal-600: #1d7a74;
+  --color-teal-700: #17625d;
+  --color-teal-800: #134e4a;
+  --color-teal-900: #0f3b38;
+  --color-teal-950: #0a2725;
+
+  --color-mark: #f2d21b;
+  --color-mark-ink: #2a0b45;
+}
+
+/* Theme-switching tokens: one class, correct in both themes. */
+:root {
+  --heading: #2a0b45;
+}
+.dark {
+  --heading: #f1ecf8;
+}
+@theme inline {
+  --color-heading: var(--heading);
+}
+
+/* Secondary text (captions, hints, metadata): ≥4.5:1 on the page background in both themes. */
+@utility text-muted {
+  color: var(--color-graphite-500);
+  @variant dark {
+    color: var(--color-graphite-400);
+  }
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+    scroll-padding-top: 5rem;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-white font-sans text-graphite-800 antialiased dark:bg-graphite-950 dark:text-graphite-200;
+  }
+  /* A highlighter pass: the same yellow marks the chosen token in every lab. */
+  ::selection {
+    background-color: var(--color-mark);
+    color: var(--color-mark-ink);
+  }
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-teal-500;
+  }
+}
+
+/* Lesson prose, re-themed through the typography plugin's own variables. */
+.prose {
+  --tw-prose-body: var(--color-graphite-800);
+  --tw-prose-headings: var(--heading);
+  --tw-prose-lead: var(--color-graphite-600);
+  --tw-prose-links: var(--color-teal-600);
+  --tw-prose-bold: var(--heading);
+  --tw-prose-counters: var(--color-graphite-500);
+  --tw-prose-bullets: var(--color-graphite-300);
+  --tw-prose-hr: var(--color-graphite-200);
+  --tw-prose-quotes: var(--heading);
+  --tw-prose-quote-borders: var(--color-graphite-200);
+  --tw-prose-captions: var(--color-graphite-500);
+  --tw-prose-code: var(--heading);
+  --tw-prose-th-borders: var(--color-graphite-300);
+  --tw-prose-td-borders: var(--color-graphite-200);
+}
+.dark .prose {
+  --tw-prose-body: var(--color-graphite-200);
+  --tw-prose-lead: var(--color-graphite-400);
+  --tw-prose-links: var(--color-teal-300);
+  --tw-prose-counters: var(--color-graphite-400);
+  --tw-prose-bullets: var(--color-graphite-600);
+  --tw-prose-hr: var(--color-graphite-800);
+  --tw-prose-quote-borders: var(--color-graphite-700);
+  --tw-prose-captions: var(--color-graphite-400);
+  --tw-prose-th-borders: var(--color-graphite-700);
+  --tw-prose-td-borders: var(--color-graphite-800);
+}
+
+/* The home page's one authored moment: a highlighter passes over each word as it is "generated". */
+@keyframes sample-sweep {
+  0%,
+  100% {
+    background-color: transparent;
+  }
+  30% {
+    background-color: var(--color-mark);
+    color: var(--color-mark-ink);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .sample-sweep {
+    animation: sample-sweep 520ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  }
+}
+
+/* Shiki emits both themes; switch to the dark palette when the dark class is set. */
+.dark .astro-code,
+.dark .astro-code span {
+  color: var(--shiki-dark) !important;
+  background-color: var(--shiki-dark-bg) !important;
+}
+
+.astro-code {
+  @apply rounded-lg border border-graphite-200 text-[0.8125rem] leading-relaxed dark:border-graphite-800;
+}
+
+/* KaTeX: its default 1.21em is tuned for serif text and looks oversized beside Plex Sans.
+   Display equations scroll sideways on narrow screens instead of widening the page. */
+.katex {
+  font-size: 1.1em;
+}
+.katex-display {
+  @apply overflow-x-auto overflow-y-hidden py-1;
+}
+
+/* Range inputs: consistent accent across browsers. */
+input[type='range'] {
+  @apply h-1.5 w-full cursor-pointer accent-teal-600 dark:accent-teal-400;
+}

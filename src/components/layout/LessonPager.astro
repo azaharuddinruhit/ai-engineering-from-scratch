@@ -1,0 +1,49 @@
+---
+import type { LessonLink } from '@/lib/curriculum';
+
+interface Props {
+  previous?: LessonLink;
+  next?: LessonLink;
+}
+
+const { previous, next } = Astro.props;
+const linkClass =
+  'group flex flex-col gap-1 rounded-lg border border-graphite-200 p-4 hover:border-teal-500 dark:border-graphite-800 dark:hover:border-teal-400';
+const titleClass = 'text-lg font-semibold leading-snug text-heading group-hover:text-teal-700 dark:group-hover:text-teal-300';
+const chevron = 'size-3.5 shrink-0';
+---
+
+<nav aria-label="Lesson navigation" class="grid gap-4 sm:grid-cols-2">
+  {
+    previous ? (
+      <a href={previous.href} class={linkClass} rel="prev">
+        <span class="flex items-center gap-1 text-sm text-muted">
+          <svg class={chevron} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M15 6l-6 6 6 6"></path>
+          </svg>
+          Previous
+        </span>
+        <span class={titleClass}>{previous.title}</span>
+      </a>
+    ) : (
+      <span />
+    )
+  }
+  {
+    next ? (
+      <a href={next.href} class={`${linkClass} sm:items-end sm:text-right`} rel="next">
+        <span class="flex items-center gap-1 text-sm text-muted">
+          Next
+          <svg class={chevron} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 6l6 6-6 6"></path>
+          </svg>
+        </span>
+        <span class={titleClass}>{next.title}</span>
+      </a>
+    ) : (
+      <div class="rounded-lg border border-dashed border-graphite-300 p-4 text-muted sm:text-right dark:border-graphite-700">
+        You've reached the end of the published lessons. The next module is on its way.
+      </div>
+    )
+  }
+</nav>

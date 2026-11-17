@@ -1,0 +1,248 @@
+---
+title: Deterministic Structured Outputs
+description: Turn free-form generation into typed data you can trust. Use JSON Schemas, constrained decoding, runtime validation with Zod and Pydantic, and repair loops that know when to give up.
+module: foundations
+order: 4
+minutes: 22
+playground: Structured Output Validator
+---
+
+import Callout from '@/components/content/Callout.astro';
+import FailureMode from '@/components/content/FailureMode.astro';
+import FlowDiagram from '@/components/content/FlowDiagram.astro';
+import StructuredOutputLab from '@/components/visualizers/StructuredOutputLab';
+
+## Mental model
+
+Downstream code needs **types**, not prose. The moment an LLM's output feeds a database write, an API call or a UI component, "usually valid JSON" is a production incident waiting to happen. Structured output is a stack of three guarantees, each covering what the one above it can't:
+
+1. **Prompting** ("respond only with JSON matching this shape"). Cheap and model-agnostic, but best-effort. Models add friendly prose, wrap the JSON in code fences, invent enum values and use the wrong types.
+2. **Constrained decoding** (native structured outputs, JSON mode, strict tool schemas). The provider compiles your JSON Schema into a grammar. At every decoding step, tokens that would break the grammar get their logits set to −∞ before sampling. These are the same logits you reshaped in the previous lesson, so the model *cannot* emit an invalid token.
+3. **Runtime validation** (Zod, Pydantic). Your code parses and validates every response against the schema, plus rules no grammar expresses: formats, ranges, cross-field constraints.
+
+Use the strongest decoding guarantee your model offers, **and always validate**. Constrained decoding covers syntax and shape. It does not cover truncation, refusals, the JSON Schema features your provider doesn't support, or whether the values are *true*.
+
+<FlowDiagram
+  caption="The structured-output pipeline. Every failure path ends in either a targeted retry or a loud, logged error."
+  steps={[
+    { label: 'Prompt + schema', detail: 'schema is part of the prompt' },
+    { label: 'Constrained decoding', detail: 'invalid tokens masked', focus: true },
+    { label: 'Stop reason check', detail: 'truncated? refused?', focus: true },
+    { label: 'Parse', detail: 'JSON.parse / json.loads' },
+    { label: 'Validate', detail: 'Zod / Pydantic', focus: true },
+    { label: 'Typed object', detail: 'or repair → retry → fail' },
+  ]}
+/>
+
+### Designing schemas the model can satisfy
+
+The schema is part of the prompt, so design it for the model as much as for your code:
+
+- **Name and describe fields clearly.** Field descriptions are instructions. `refundRequested: boolean` with a description beats `flag2`.
+- **Prefer enums to free text** for anything your code branches on, and include an explicit `"unknown"` or nullable option. Otherwise the model will make up a value rather than admit it doesn't know.
+- **Keep it flat and small.** Deep nesting, large unions and recursive types are harder for the model and often unsupported by strict modes.
+- **Order matters.** Fields are generated in order. If you want reasoning, put the reasoning field before the answer it should inform.
+
+## Playground
+
+The lab runs real Zod validation in your browser on simulated completions for a support-ticket extraction task.
+
+1. **Prose + code fence**: parsing the raw text fails, but extraction recovers the object. Fragile but common.
+2. **Wrong types** and **Missing field**: valid JSON, invalid data. Read the repair message: it names the exact paths, which is what makes a retry likely to succeed.
+3. Turn on **Constrained decoding**. Every failure disappears except **Truncated**. No grammar can save an object the token budget cut off.
+4. Edit the raw completion yourself. Change `"pro"` to `"platinum"` and watch the enum check catch it.
+
+<StructuredOutputLab client:visible />
+
+## Production pattern: generate, validate, repair, fail loudly
+
+One generic function owns the whole loop. The schema is the single source of truth: it produces the JSON Schema sent to the provider *and* validates the response, so the two can never drift apart.
+
+```ts
+import { z } from 'zod';
+
+export type FinishReason = 'stop' | 'length' | 'refusal' | 'other';
+
+export interface Message {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+/** Provider adapter: passes the JSON Schema to the provider's structured-output (strict) mode. */
+export type GenerateJson = (
+  messages: Message[],
+  options: { jsonSchema: Record<string, unknown>; maxOutputTokens: number },
+) => Promise<{ text: string; finishReason: FinishReason }>;
+
+export class StructuredOutputError extends Error {
+  constructor(
+    message: string,
+    readonly attempts: number,
+    readonly lastOutput: string,
+  ) {
+    super(message);
+  }
+}
+
+type Checked<T> = { ok: true; value: T } | { ok: false; feedback: string };
+
+function parseAndValidate<T>(schema: z.ZodType<T>, text: string): Checked<T> {
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch (error) {
+    return { ok: false, feedback: `Your response was not valid JSON (${(error as Error).message}).` };
+  }
+  const result = schema.safeParse(data);
+  if (result.success) return { ok: true, value: result.data };
+  const issues = result.error.issues.map((i) => `- ${i.path.join('.') || '(root)'}: ${i.message}`);
+  return { ok: false, feedback: `Your response did not match the schema:\n${issues.join('\n')}` };
+}
+
+export async function generateStructured<T>(
+  schema: z.ZodType<T>,
+  generate: GenerateJson,
+  messages: Message[],
+  { maxAttempts = 3, maxOutputTokens = 2048 } = {},
+): Promise<T> {
+  const jsonSchema = z.toJSONSchema(schema);
+  const conversation = [...messages];
+  let budget = maxOutputTokens;
+  let lastOutput = '';
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const { text, finishReason } = await generate(conversation, { jsonSchema, maxOutputTokens: budget });
+    lastOutput = text;
+
+    if (finishReason === 'refusal') {
+      throw new StructuredOutputError('Model refused the request', attempt, text);
+    }
+    if (finishReason === 'length') {
+      budget *= 2; // a cut-off object can't be repaired by asking; give it room instead
+      continue;
+    }
+
+    const checked = parseAndValidate(schema, text);
+    if (checked.ok) return checked.value;
+    conversation.push(
+      { role: 'assistant', content: text },
+      { role: 'user', content: `${checked.feedback}\nReturn only the corrected JSON object.` },
+    );
+  }
+  throw new StructuredOutputError(`No valid output after ${maxAttempts} attempts`, maxAttempts, lastOutput);
+}
+
+// Usage
+const SupportTicket = z.object({
+  customerName: z.string().min(1).describe('Full name as written by the customer'),
+  email: z.email(),
+  plan: z.enum(['free', 'pro', 'enterprise', 'unknown']),
+  priority: z.enum(['low', 'medium', 'high']),
+  refundRequested: z.boolean(),
+});
+
+// const ticket = await generateStructured(SupportTicket, generate, [{ role: 'user', content: email }]);
+// ticket is fully typed: { customerName: string; email: string; plan: 'free' | ... }
+```
+
+The Python equivalent with Pydantic v2. `model_validate_json` parses and validates in one step and raises the same `ValidationError` for malformed JSON:
+
+```python
+from collections.abc import Awaitable
+from dataclasses import dataclass
+from typing import Any, Literal, Protocol, TypeVar
+
+from pydantic import BaseModel, Field, ValidationError
+
+M = TypeVar("M", bound=BaseModel)
+FinishReason = Literal["stop", "length", "refusal", "other"]
+
+
+@dataclass(frozen=True)
+class Message:
+    role: Literal["user", "assistant"]
+    content: str
+
+
+class GenerateJson(Protocol):
+    def __call__(
+        self, messages: list[Message], *, json_schema: dict[str, Any], max_output_tokens: int
+    ) -> Awaitable[tuple[str, FinishReason]]: ...
+
+
+class StructuredOutputError(Exception):
+    def __init__(self, message: str, attempts: int, last_output: str) -> None:
+        super().__init__(message)
+        self.attempts = attempts
+        self.last_output = last_output
+
+
+async def generate_structured(
+    model_cls: type[M],
+    generate: GenerateJson,
+    messages: list[Message],
+    *,
+    max_attempts: int = 3,
+    max_output_tokens: int = 2048,
+) -> M:
+    json_schema = model_cls.model_json_schema()
+    conversation = list(messages)
+    budget, last_output = max_output_tokens, ""
+
+    for attempt in range(1, max_attempts + 1):
+        text, finish_reason = await generate(
+            conversation, json_schema=json_schema, max_output_tokens=budget
+        )
+        last_output = text
+        if finish_reason == "refusal":
+            raise StructuredOutputError("Model refused the request", attempt, text)
+        if finish_reason == "length":
+            budget *= 2  # repairing a truncated object by asking never works
+            continue
+        try:
+            return model_cls.model_validate_json(text)
+        except ValidationError as error:
+            issues = "\n".join(
+                f"- {'.'.join(map(str, e['loc'])) or '(root)'}: {e['msg']}" for e in error.errors()
+            )
+            conversation += [
+                Message("assistant", text),
+                Message("user", f"Your response did not match the schema:\n{issues}\n"
+                                "Return only the corrected JSON object."),
+            ]
+    raise StructuredOutputError(f"No valid output after {max_attempts} attempts", max_attempts, last_output)
+
+
+class SupportTicket(BaseModel):
+    customer_name: str = Field(min_length=1, description="Full name as written by the customer")
+    email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    plan: Literal["free", "pro", "enterprise", "unknown"]
+    priority: Literal["low", "medium", "high"]
+    refund_requested: bool
+```
+
+<Callout type="note" title="Strict modes support a subset of JSON Schema">
+Providers' strict modes typically require every property to be listed as required and `additionalProperties: false`. They may also ignore or reject keywords such as `pattern`, numeric bounds or string formats. Check the provider's supported-schema list. Anything the decoder doesn't enforce, your runtime validator still must.
+</Callout>
+
+## Failure modes
+
+<FailureMode title="Truncated objects" symptom="Intermittent parse errors on long outputs, often on the same few large inputs.">
+**Why:** the output hit the token limit, so the JSON was cut off. Constrained decoding cannot prevent this. **Mitigation:** check the stop reason before parsing. Retry with a larger budget, or split the task: extract a list in pages, or ask for fewer fields.
+</FailureMode>
+
+<FailureMode title="Valid but wrong" symptom="Every response passes validation, yet some records contain invented emails, wrong priorities or values from the few-shot examples.">
+**Why:** schemas constrain shape, not truth. **Mitigation:** add semantic checks (does the extracted email appear in the source text?), apply business rules after validation, and measure field-level accuracy with an eval set (Module 5).
+</FailureMode>
+
+<FailureMode title="Forced answers instead of unknowns" symptom="The model confidently fills fields the input never mentions.">
+**Why:** the schema made every field required with no way to say "not present". **Mitigation:** add explicit `unknown` enum values or nullable fields, and tell the model when to use them.
+</FailureMode>
+
+<FailureMode title="Refusals and safety stops" symptom="A response with no JSON at all, or a polite apology, reaches the parser.">
+**Why:** the model or a provider-side safety system declined the request, which constrained decoding does not override. **Mitigation:** handle the refusal stop reason as its own outcome. Don't retry it as a format error, because the result won't change and you'll pay for every attempt.
+</FailureMode>
+
+<FailureMode title="Unbounded repair loops" symptom="A single bad input burns dozens of calls and seconds of latency.">
+**Why:** retries without a cap, or retries for failures that repetition can't fix. **Mitigation:** cap attempts (two or three), send precise validation errors rather than "try again", and after the cap fail loudly with the raw output logged for debugging.
+</FailureMode>

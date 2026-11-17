@@ -1,0 +1,192 @@
+---
+import BaseLayout from '@/layouts/BaseLayout.astro';
+import ProgressMarks from '@/components/layout/ProgressMarks.astro';
+import HeroSampler from '@/components/visualizers/HeroSampler';
+import { getCurriculum } from '@/lib/curriculum';
+import { lessonHref, moduleHref } from '@/lib/paths';
+
+const curriculum = await getCurriculum();
+const firstLesson = curriculum[0].lessons[0];
+const chunkingLesson = lessonHref('rag', 'chunking-strategies');
+
+/** The four parts every lesson runs through, in order, each shown with what it looks like in one real lesson. */
+const anatomy = [
+  {
+    title: 'Mental model',
+    body: 'Why the technique works, with a diagram of where it sits in the system.',
+    example: 'The ingestion pipeline, from loading documents to upserting vectors.',
+  },
+  {
+    title: 'Playground',
+    body: 'A lab that runs in your browser. Move the parameters until the system breaks.',
+    example: 'Fixed-size chunks cutting sentences in half while recursive ones don’t.',
+  },
+  {
+    title: 'Production pattern',
+    body: 'TypeScript and Python you can adapt, with validation, error handling and retries.',
+    example: 'A structure-aware chunker that gives every chunk a stable id.',
+  },
+  {
+    title: 'Failure modes',
+    body: 'What goes wrong in production, how you’ll notice, and how to prevent it.',
+    example: 'A refund rule retrieved without the exception in the next sentence.',
+  },
+];
+---
+
+<BaseLayout
+  title="AI Engineering from Scratch"
+  description="An interactive course on building, grounding, orchestrating, evaluating and scaling production-grade AI applications."
+>
+  <main id="main">
+    <section class="border-b border-graphite-200 dark:border-graphite-800">
+      <div class="mx-auto max-w-6xl px-4 pb-20 pt-16 sm:px-6 sm:pb-24 sm:pt-24">
+        <h1 class="text-[2.75rem] font-semibold leading-[0.95] tracking-[-0.025em] text-heading sm:text-7xl lg:text-[5.5rem]">
+          <span class="block">AI Engineering</span>
+          <span class="block">from Scratch</span>
+        </h1>
+        <div class="mt-10 sm:mt-14">
+          <HeroSampler client:load decodingLessonHref={lessonHref('foundations', 'inference-and-decoding')}>
+            <p class="mt-8 max-w-xl text-lg leading-relaxed text-graphite-600 dark:text-graphite-400">
+              Learn how they work under the hood, how to wire them into real systems, and exactly where they break in
+              production.
+            </p>
+            <div class="mt-8 flex flex-wrap gap-3">
+              <a
+                href={firstLesson.href}
+                class="rounded-md bg-teal-600 px-5 py-2.5 text-[0.9375rem] font-semibold text-white hover:bg-teal-700"
+              >
+                Start Module 1
+              </a>
+              <a
+                href="#curriculum"
+                class="rounded-md border border-graphite-300 px-5 py-2.5 text-[0.9375rem] font-semibold text-graphite-800 hover:bg-graphite-50 dark:border-graphite-700 dark:text-graphite-200 dark:hover:bg-graphite-900"
+              >
+                Browse the curriculum
+              </a>
+            </div>
+            <p class="mt-5 text-sm text-muted">
+              Every lab runs in your browser as a deterministic simulation. No API keys, no sign-up.
+            </p>
+          </HeroSampler>
+        </div>
+      </div>
+    </section>
+
+    <section class="mx-auto grid max-w-6xl gap-10 px-4 py-20 sm:px-6 lg:grid-cols-[20rem_1fr] lg:gap-16" aria-labelledby="anatomy-title">
+      <div>
+        <h2 id="anatomy-title" class="text-3xl font-semibold tracking-tight text-heading">How a lesson works</h2>
+        <p class="mt-3 text-graphite-600 dark:text-graphite-400">
+          Every lesson runs through the same four parts, in this order. The examples come from{' '}
+          <a href={chunkingLesson} class="text-teal-700 underline underline-offset-2 hover:text-teal-600 dark:text-teal-300"
+            >Data Ingestion &amp; Chunking</a
+          >.
+        </p>
+      </div>
+      <ol class="divide-y divide-graphite-200 border-y border-graphite-200 dark:divide-graphite-800 dark:border-graphite-800">
+        {
+          anatomy.map((part, index) => (
+            <li class="grid grid-cols-[2rem_1fr] gap-x-4 gap-y-1 py-5 sm:grid-cols-[2rem_11rem_1fr] sm:gap-x-6">
+              <span class="text-2xl leading-none text-teal-600 dark:text-teal-400" aria-hidden="true">
+                {index + 1}
+              </span>
+              <h3 class="font-semibold text-heading">{part.title}</h3>
+              <div class="col-start-2 sm:col-start-auto">
+                <p class="text-graphite-700 dark:text-graphite-300">{part.body}</p>
+                <p class="mt-1 text-sm italic text-muted">{part.example}</p>
+              </div>
+            </li>
+          ))
+        }
+      </ol>
+    </section>
+
+    <section
+      id="curriculum"
+      class="mx-auto max-w-6xl scroll-mt-20 px-4 pb-24 sm:px-6"
+      aria-labelledby="curriculum-title"
+    >
+      <div class="lg:grid lg:grid-cols-[20rem_1fr] lg:gap-16">
+        <div>
+          <h2 id="curriculum-title" class="text-3xl font-semibold tracking-tight text-heading">Curriculum</h2>
+          <p class="mt-3 text-graphite-600 dark:text-graphite-400">
+            Five modules, from model mechanics to hardened production systems. Each builds on the one before.
+          </p>
+        </div>
+
+        <ol class="mt-10 lg:mt-0">
+          {
+            curriculum.map(({ module, lessons }, index) => {
+              const available = module.data.status === 'available';
+              const last = index === curriculum.length - 1;
+              return (
+                <li class:list={['relative pl-12', !last && 'pb-12']}>
+                  {!last && (
+                    <span
+                      class:list={[
+                        'absolute bottom-0 left-[0.9375rem] top-9 w-px',
+                        available ? 'bg-teal-600/40 dark:bg-teal-400/40' : 'bg-graphite-200 dark:bg-graphite-800',
+                      ]}
+                      aria-hidden="true"
+                    />
+                  )}
+                  <span
+                    class:list={[
+                      'absolute left-0 top-0.5 grid size-8 place-items-center rounded-full text-sm font-semibold',
+                      available
+                        ? 'bg-teal-600 text-white dark:bg-teal-500 dark:text-graphite-950'
+                        : 'border-2 border-graphite-300 bg-white text-graphite-600 dark:border-graphite-700 dark:bg-graphite-950 dark:text-graphite-400',
+                    ]}
+                    aria-hidden="true"
+                  >
+                    {module.data.number}
+                  </span>
+
+                  <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                    <h3 class="text-xl font-semibold text-heading sm:text-2xl">
+                      <span class="sr-only">Module {module.data.number}: </span>
+                      {available ? (
+                        <a href={moduleHref(module.id)} class="hover:text-teal-700 dark:hover:text-teal-300">
+                          {module.data.title}
+                        </a>
+                      ) : (
+                        module.data.title
+                      )}
+                    </h3>
+                    {available ? (
+                      <p class="text-sm text-muted" data-progress-count={lessons.map((l) => l.id).join(' ')}>
+                        {lessons.length} lessons
+                      </p>
+                    ) : (
+                      <p class="rounded bg-graphite-100 px-2 py-0.5 text-xs font-medium text-graphite-600 dark:bg-graphite-900 dark:text-graphite-400">
+                        Coming soon
+                      </p>
+                    )}
+                  </div>
+                  <p class="mt-0.5 italic text-graphite-600 dark:text-graphite-400">{module.data.tagline}</p>
+                  <p class="mt-3 max-w-2xl text-graphite-700 dark:text-graphite-300">{module.data.summary}</p>
+
+                  <ul class="mt-4 grid gap-x-8 gap-y-1.5 sm:grid-cols-2">
+                    {available
+                      ? lessons.map((lesson) => (
+                          <li class="flex items-baseline justify-between gap-3 border-b border-graphite-200 pb-1.5 dark:border-graphite-800">
+                            <a href={lesson.href} class="text-teal-700 hover:underline hover:underline-offset-2 dark:text-teal-300">
+                              {lesson.title}
+                            </a>
+                            <span class="shrink-0 text-xs text-muted">{lesson.minutes} min</span>
+                          </li>
+                        ))
+                      : module.data.topics.map((topic) => (
+                          <li class="border-b border-dashed border-graphite-200 pb-1.5 text-muted dark:border-graphite-800">{topic}</li>
+                        ))}
+                  </ul>
+                </li>
+              );
+            })
+          }
+        </ol>
+      </div>
+    </section>
+  </main>
+  <ProgressMarks />
+</BaseLayout>

@@ -1,0 +1,212 @@
+---
+title: The AI Engineering Stack
+description: What an AI engineer owns, how that differs from ML research and data science, and how to choose between proprietary APIs and open-weights models.
+module: foundations
+order: 1
+minutes: 18
+playground: Build vs. Buy Cost Explorer
+---
+
+import Callout from '@/components/content/Callout.astro';
+import FailureMode from '@/components/content/FailureMode.astro';
+import LayerDiagram from '@/components/content/LayerDiagram.astro';
+import BuildVsBuyCalculator from '@/components/visualizers/BuildVsBuyCalculator';
+
+## Mental model
+
+An AI engineer builds **software products on top of pretrained models**. You rarely train a model from scratch. Your job is to make a probabilistic component behave reliably inside a deterministic system: choose a model, feed it the right context, constrain its output, measure quality, and keep cost and latency under control.
+
+That makes the model closer to a **third-party service with a fuzzy contract** than to a function call. The same input can produce different outputs. Quality changes when the provider ships a new version. Every call costs money in proportion to the tokens you send and receive. Every pattern in this course exists to manage one of those properties.
+
+<LayerDiagram
+  caption="The AI engineering stack. AI engineers own the highlighted layers and choose (not build) the ones below."
+  layers={[
+    { label: 'Product & UX', detail: 'Streaming UIs, human review, feedback capture, graceful degradation.', focus: true },
+    { label: 'Orchestration', detail: 'Prompts, retrieval (RAG), tool calling, agents, workflows.', focus: true },
+    { label: 'Evaluation & observability', detail: 'Evals, traces, cost and latency dashboards, guardrails.', focus: true },
+    { label: 'Model access', detail: 'Provider APIs, gateways and routers, or your own inference server (vLLM, TGI, llama.cpp).', focus: true },
+    { label: 'Models', detail: 'Proprietary frontier models, open-weights models, fine-tuned variants.' },
+    { label: 'Compute', detail: 'GPUs and accelerators: rented through an API price or owned and operated by you.' },
+  ]}
+/>
+
+### Three roles, three different questions
+
+| Role | Core question | Typical output |
+| --- | --- | --- |
+| **ML researcher** | Can we make a better model? | New architectures, training recipes, papers, model weights |
+| **Data scientist** | What does the data tell us? | Analyses, forecasts, dashboards, classical ML models |
+| **AI engineer** | How do we ship a reliable product on a model? | Services, pipelines, evals, prompts, retrieval systems, agents |
+
+The boundaries blur. AI engineers fine-tune (Module 4) and analyse eval data like data scientists. But the centre of gravity is different: you are judged on **system behaviour in production**, not on benchmark scores or insights.
+
+### Proprietary APIs vs. open-weights models
+
+**Proprietary APIs** (frontier models behind an HTTP endpoint) give you the strongest capabilities with zero infrastructure. You pay per token, accept the provider's rate limits, data policies and release schedule, and can never inspect the weights.
+
+**Open-weights models** can be downloaded and served on hardware you control. You get data locality, full control of versions and decoding parameters, and the option to fine-tune deeply. In exchange you own GPU capacity planning, serving software, upgrades, and on-call duty. Their capability usually trails the frontier.
+
+Most production systems end up **hybrid**: a frontier API for hard reasoning, smaller or self-hosted models for high-volume, latency-sensitive or privacy-sensitive steps. Routing between them is covered in Module 5.
+
+<Callout type="note" title="The decision is rarely about price per token alone">
+Self-hosting looks cheap per token, but you pay for GPUs whether or not traffic arrives. You also pay for redundancy, utilisation headroom and the engineers who keep the stack running. The playground below makes those fixed costs visible.
+</Callout>
+
+## Playground
+
+Set a workload, then compare a hosted API with a self-hosted deployment. Look for three things:
+
+1. **The break-even volume.** Below it, the fixed cost of GPUs and operations dominates. Start at low traffic and watch the self-hosted line stay flat while the API line rises.
+2. **The effect of utilisation.** Drop sustainable utilisation to 30% (spiky consumer traffic) and watch the break-even point move right.
+3. **The model class.** Switch the API to a small model. At high volume, a cheap hosted model often beats self-hosting outright, which is why "use a smaller model" is often the first cost lever to try.
+
+<BuildVsBuyCalculator client:visible />
+
+## Production pattern: a thin, provider-agnostic client
+
+Whatever you choose today, you will switch models within months: a new version ships, prices drop, or a smaller model becomes good enough. Keep the rest of your code independent of any one provider by wrapping model access behind **one narrow interface**. Then put the cross-cutting concerns in one place: timeouts, retries with backoff, and usage accounting.
+
+```ts
+export interface CompletionRequest {
+  system: string;
+  prompt: string;
+  maxOutputTokens: number;
+}
+
+export interface CompletionResult {
+  text: string;
+  inputTokens: number;
+  outputTokens: number;
+  finishReason: 'stop' | 'length' | 'refusal' | 'other';
+}
+
+/** Implemented once per provider (or per inference server). Nothing else imports a provider SDK. */
+export interface LlmClient {
+  readonly model: string;
+  complete(request: CompletionRequest, signal: AbortSignal): Promise<CompletionResult>;
+}
+
+/** Adapters throw this for 429s, 5xx responses and network errors; everything else is permanent. */
+export class RetryableError extends Error {}
+
+interface RetryPolicy {
+  maxAttempts: number;
+  timeoutMs: number;
+  baseDelayMs: number;
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export async function completeWithRetry(
+  client: LlmClient,
+  request: CompletionRequest,
+  { maxAttempts = 3, timeoutMs = 60_000, baseDelayMs = 500 }: Partial<RetryPolicy> = {},
+): Promise<CompletionResult> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const result = await client.complete(request, AbortSignal.timeout(timeoutMs));
+      console.info('llm.usage', {
+        model: client.model,
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        finishReason: result.finishReason,
+        attempt,
+      });
+      return result;
+    } catch (error) {
+      const timedOut = error instanceof DOMException && error.name === 'TimeoutError';
+      const retryable = timedOut || error instanceof RetryableError;
+      if (!retryable || attempt >= maxAttempts) throw error;
+      // Exponential backoff with jitter so many clients don't retry in lockstep.
+      await sleep(baseDelayMs * 2 ** (attempt - 1) * (0.5 + Math.random()));
+    }
+  }
+}
+```
+
+The same shape in Python, using a `Protocol` so adapters need no shared base class:
+
+```python
+import asyncio
+import logging
+import random
+from dataclasses import dataclass
+from typing import Literal, Protocol
+
+log = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class CompletionRequest:
+    system: str
+    prompt: str
+    max_output_tokens: int
+
+
+@dataclass(frozen=True)
+class CompletionResult:
+    text: str
+    input_tokens: int
+    output_tokens: int
+    finish_reason: Literal["stop", "length", "refusal", "other"]
+
+
+class LlmClient(Protocol):
+    model: str
+
+    async def complete(self, request: CompletionRequest) -> CompletionResult: ...
+
+
+class RetryableError(Exception):
+    """Raised by adapters for 429s, 5xx responses and network errors."""
+
+
+async def complete_with_retry(
+    client: LlmClient,
+    request: CompletionRequest,
+    *,
+    max_attempts: int = 3,
+    timeout_s: float = 60.0,
+    base_delay_s: float = 0.5,
+) -> CompletionResult:
+    for attempt in range(1, max_attempts + 1):
+        try:
+            result = await asyncio.wait_for(client.complete(request), timeout=timeout_s)
+        except (RetryableError, asyncio.TimeoutError):
+            if attempt == max_attempts:
+                raise
+            await asyncio.sleep(base_delay_s * 2 ** (attempt - 1) * (0.5 + random.random()))
+            continue
+        log.info(
+            "llm.usage model=%s input=%d output=%d finish=%s attempt=%d",
+            client.model, result.input_tokens, result.output_tokens, result.finish_reason, attempt,
+        )
+        return result
+    raise AssertionError("unreachable")
+```
+
+<Callout type="tip" title="Use the SDK's retries, or yours, never both">
+Official provider SDKs usually retry rate-limit and server errors by default. If your adapter wraps such an SDK, either turn its retries off or drop your own loop. Stacked retry layers multiply: 3 × 3 attempts become 9 calls per request during an outage.
+</Callout>
+
+## Failure modes
+
+<FailureMode title="Provider details leak everywhere" symptom="Switching models takes weeks because provider-specific parameters and response shapes are spread across the codebase.">
+**Why:** call sites import the provider SDK directly. **Mitigation:** one adapter per provider behind a narrow interface, as above. Map provider-specific stop reasons and errors onto your own small set of values at the boundary.
+</FailureMode>
+
+<FailureMode title="Silent model drift" symptom="Quality changes overnight with no code change, or a model you rely on reaches its retirement date.">
+**Why:** "latest" aliases move to new versions, and providers retire old models on a schedule. **Mitigation:** pin exact model identifiers in configuration, subscribe to deprecation notices, and run your eval suite (Module 5) before every model change.
+</FailureMode>
+
+<FailureMode title="Retry storms" symptom="A short provider outage turns into a sustained one, and your bill spikes.">
+**Why:** retries without jitter synchronise, and nested retry layers multiply load. **Mitigation:** one retry layer, exponential backoff with jitter, a small attempt cap, and a circuit breaker that fails fast while the provider is unhealthy.
+</FailureMode>
+
+<FailureMode title="Unbounded spend" symptom="A single user or a runaway loop produces a four-figure bill in a day.">
+**Why:** no cap on output tokens, request rate or calls per task. **Mitigation:** always set a maximum output size, enforce per-user and per-tenant budgets, and log token usage with the request id on every call. The `llm.usage` log above is the minimum you need for cost attribution.
+</FailureMode>
+
+<FailureMode title="Self-hosting on paper only" symptom="The self-hosted model is cheaper in the spreadsheet but slower, flakier and more expensive in practice.">
+**Why:** the estimate ignored redundancy, peak capacity, low utilisation and the engineering time. **Mitigation:** price in a utilisation target, at least two replicas and operations overhead. Start on an API and self-host only the workloads whose volume, latency or data constraints justify it.
+</FailureMode>

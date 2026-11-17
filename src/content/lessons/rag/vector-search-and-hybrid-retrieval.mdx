@@ -1,0 +1,236 @@
+---
+title: Vector Search & Hybrid Retrieval
+description: How HNSW finds neighbours in milliseconds, why metadata filters are a correctness and security concern, and how BM25 plus Reciprocal Rank Fusion covers what embeddings miss.
+module: rag
+order: 3
+minutes: 26
+playground: RAG Chunking & Hybrid Search Lab
+---
+
+import Callout from '@/components/content/Callout.astro';
+import FailureMode from '@/components/content/FailureMode.astro';
+import FlowDiagram from '@/components/content/FlowDiagram.astro';
+import HybridSearchLab from '@/components/visualizers/HybridSearchLab';
+
+## Mental model
+
+Retrieval has two jobs: **find candidates fast** across millions of chunks, then **order them well** so the few that fit in the prompt are the right ones. No single method does both perfectly. Dense vectors understand paraphrases but blur exact strings. Lexical search nails exact strings but misses paraphrases. Production systems run both and fuse the results.
+
+<FlowDiagram
+  caption="A hybrid retrieval pipeline. Each retriever over-fetches candidates; fusion and reranking decide the final top-k."
+  steps={[
+    { label: 'Query', detail: '+ tenant & filters' },
+    { label: 'Dense ANN', detail: 'HNSW · top 50', focus: true },
+    { label: 'BM25', detail: 'inverted index · top 50', focus: true },
+    { label: 'Fusion', detail: 'Reciprocal Rank Fusion', focus: true },
+    { label: 'Rerank', detail: 'cross-encoder · next lesson' },
+    { label: 'Top-k', detail: 'into the prompt' },
+  ]}
+/>
+
+### Exact vs. approximate nearest neighbours
+
+Exact search compares the query with every stored vector. That is perfectly reasonable up to roughly a hundred thousand vectors, especially on normalised float32 arrays with a single matrix multiply. Beyond that, latency and cost push you to **approximate nearest neighbour (ANN)** indexes, which trade a little recall for orders-of-magnitude speed.
+
+### How HNSW works
+
+**Hierarchical Navigable Small World** graphs are the most widely used ANN index:
+
+- Every vector is a node linked to its closest neighbours, up to `M` links each.
+- Nodes are also randomly promoted to sparser upper layers, which act like an express lane of long-range links.
+- A search enters at the top layer, greedily hops toward the query, drops down a layer, and repeats. On the bottom layer it keeps a candidate list of size `efSearch` and returns the best `k`.
+
+The parameters trade quality for cost. A higher `M` and `efConstruction` build a better-connected graph, at the cost of more memory and slower indexing. A higher `efSearch` raises recall at query time, at the cost of latency. Because results are approximate, **measure recall@k** against exact search on a sample of real queries before tuning anything else. Other index families make different trade-offs: IVF clusters vectors and probes a few clusters, product quantisation compresses vectors, and disk-based indexes such as DiskANN serve corpora larger than RAM.
+
+### Metadata filtering is part of correctness
+
+Real queries come with constraints: this tenant only, documents the user may see, English only, updated this year.
+
+- **Post-filtering** (search, then drop non-matching hits) can return fewer than *k* results, or none at all, when the filter is selective.
+- **Pre-filtering**, or filter-aware search, applies the constraint during the search, so *k* results come back whenever *k* matching documents exist. Most vector databases support it. Very selective filters may fall back to exact search over the filtered subset, which is fine.
+
+<Callout type="warning" title="Access control is a filter, not a prompt instruction">
+Never rely on the model to ignore documents a user isn't allowed to see. Enforce tenant and permission filters inside every retriever, or use a separate index per tenant, so forbidden text never reaches the prompt at all.
+</Callout>
+
+### Lexical search with BM25
+
+BM25 scores a document by the query terms it contains, weighted by how **rare** each term is across the corpus (inverse document frequency). Term frequency is **saturating**, so the tenth repetition adds little. Scores are **normalised for document length**, so long documents don't win by default. The `k1` parameter (typically 1.2–2.0) controls saturation, and `b` (typically 0.75) controls length normalisation. BM25 excels at exact identifiers, names, error codes, product numbers and rare jargon, which are exactly the places embeddings are weakest.
+
+### Fusing rankings with RRF
+
+Dense and lexical scores live on incompatible scales: a cosine of 0.42 and a BM25 score of 7.3 can't be added meaningfully. **Reciprocal Rank Fusion** sidesteps calibration entirely by using only ranks:
+
+$$
+\mathrm{RRF}(d) = \sum_{r \in R} \frac{1}{k + \mathrm{rank}_r(d)}
+$$
+
+Here $R$ is the set of retrievers, $\mathrm{rank}_r(d)$ is the position of document $d$ in retriever $r$'s results, and $k$ is a constant, usually 60. A document ranked well by both retrievers rises to the top. One found by only a single retriever still makes the list. The constant `k` damps the influence of any single top rank. Weighted score fusion (normalise each retriever's scores, then mix) is the main alternative, but it needs tuning whenever the corpus or models change.
+
+## Playground
+
+The lab indexes the handbook from the previous lesson and runs four retrieval methods side by side. The badges show whether the chunk containing the answer reached the top-k for each method.
+
+1. **Exact error code**: dense retrieval fails, because the toy embedding has never seen `ERR-4012` (real embeddings blur it too). BM25 finds it instantly.
+2. **Paraphrase**: "history" and "purged" appear nowhere in the handbook, so BM25 fails, while dense retrieval maps them to retention and deletion.
+3. **Hybrid (RRF)** succeeds on both, and **Hybrid + rerank** moves the answer chunk to rank 1. Compare the dense and BM25 rank columns to see what fusion combined.
+4. Select **Billing question**, then drop the chunk size to **32 tokens**. Every method fails, because the rule "annual plans can be refunded" and its condition now sit in different chunks. Retrieval can't fix what chunking broke.
+
+<HybridSearchLab client:visible />
+
+## Production pattern: resilient hybrid search
+
+The pattern below runs both retrievers **in parallel with the same mandatory tenant filter**, over-fetches candidates from each, and fuses them with RRF. If one retriever fails, it degrades to the other instead of failing the request. Your vector database and search engine (for example OpenSearch, Elasticsearch or Postgres full-text search) implement the two index interfaces.
+
+```ts
+export interface Hit {
+  chunkId: string;
+  score: number;
+}
+
+export interface SearchRequest {
+  query: string;
+  /** Mandatory: every retriever must pre-filter on it. */
+  tenantId: string;
+  filter?: Record<string, string | number | boolean>;
+  limit: number;
+}
+
+export interface VectorIndex {
+  search(vector: Float32Array, request: Omit<SearchRequest, 'query'>): Promise<Hit[]>;
+}
+
+export interface LexicalIndex {
+  search(request: SearchRequest): Promise<Hit[]>;
+}
+
+export interface Retrievers {
+  embed(text: string): Promise<Float32Array>;
+  vectors: VectorIndex;
+  lexical: LexicalIndex;
+}
+
+export function reciprocalRankFusion(rankings: readonly Hit[][], k = 60): Hit[] {
+  const scores = new Map<string, number>();
+  for (const ranking of rankings) {
+    ranking.forEach((hit, position) => {
+      scores.set(hit.chunkId, (scores.get(hit.chunkId) ?? 0) + 1 / (k + position + 1));
+    });
+  }
+  return [...scores].map(([chunkId, score]) => ({ chunkId, score })).sort((a, b) => b.score - a.score);
+}
+
+export async function hybridSearch(
+  request: SearchRequest,
+  { embed, vectors, lexical }: Retrievers,
+  candidatesPerRetriever = 50,
+): Promise<Hit[]> {
+  const candidates = { ...request, limit: candidatesPerRetriever };
+  const results = await Promise.allSettled([
+    embed(request.query).then((vector) => vectors.search(vector, candidates)),
+    lexical.search(candidates),
+  ]);
+
+  const rankings = results.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []));
+  for (const r of results) {
+    if (r.status === 'rejected') console.warn('retriever.failed', { tenantId: request.tenantId, reason: r.reason });
+  }
+  if (rankings.length === 0) throw new AggregateError(results.map((r) => (r as PromiseRejectedResult).reason));
+
+  return reciprocalRankFusion(rankings).slice(0, request.limit);
+}
+```
+
+The Python version uses `asyncio.gather` with `return_exceptions=True` for the same degrade-don't-fail behaviour:
+
+```python
+import asyncio
+import logging
+from collections import defaultdict
+from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass, field, replace
+from typing import Protocol
+
+import numpy as np
+
+log = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class Hit:
+    chunk_id: str
+    score: float
+
+
+@dataclass(frozen=True)
+class SearchRequest:
+    query: str
+    tenant_id: str  # mandatory: every retriever must pre-filter on it
+    limit: int
+    filter: dict[str, str | int | bool] = field(default_factory=dict)
+
+
+class VectorIndex(Protocol):
+    async def search(self, vector: np.ndarray, request: SearchRequest) -> list[Hit]: ...
+
+
+class LexicalIndex(Protocol):
+    async def search(self, request: SearchRequest) -> list[Hit]: ...
+
+
+def reciprocal_rank_fusion(rankings: Sequence[Sequence[Hit]], k: int = 60) -> list[Hit]:
+    scores: dict[str, float] = defaultdict(float)
+    for ranking in rankings:
+        for position, hit in enumerate(ranking, start=1):
+            scores[hit.chunk_id] += 1 / (k + position)
+    return sorted((Hit(cid, s) for cid, s in scores.items()), key=lambda h: h.score, reverse=True)
+
+
+async def hybrid_search(
+    request: SearchRequest,
+    embed: Callable[[str], Awaitable[np.ndarray]],
+    vectors: VectorIndex,
+    lexical: LexicalIndex,
+    candidates_per_retriever: int = 50,
+) -> list[Hit]:
+    candidates = replace(request, limit=candidates_per_retriever)
+
+    async def dense() -> list[Hit]:
+        return await vectors.search(await embed(request.query), candidates)
+
+    results = await asyncio.gather(dense(), lexical.search(candidates), return_exceptions=True)
+    rankings = [r for r in results if not isinstance(r, BaseException)]
+    for r in results:
+        if isinstance(r, BaseException):
+            log.warning("retriever failed tenant=%s", request.tenant_id, exc_info=r)
+    if not rankings:
+        raise RuntimeError("All retrievers failed") from next(r for r in results if isinstance(r, BaseException))
+
+    return reciprocal_rank_fusion(rankings)[: request.limit]
+```
+
+<Callout type="tip" title="Over-fetch, then cut">
+Ask each retriever for many more candidates than you'll use (for example 50 each for a final top-5). Fusion and reranking can only promote documents that made it into the candidate pool.
+</Callout>
+
+## Failure modes
+
+<FailureMode title="Empty results under selective filters" symptom="Queries for small tenants or narrow date ranges return nothing, while broad queries work.">
+**Why:** the index post-filters after the ANN search, so the top candidates all belonged to other tenants. **Mitigation:** use filter-aware (pre-filtered) search, a namespace per tenant, or an exact-search fallback when the filtered set is small.
+</FailureMode>
+
+<FailureMode title="Cross-tenant data leaks" symptom="A user sees, or the model quotes, a document from another customer.">
+**Why:** tenant isolation was enforced in application code after retrieval, or only in the prompt. **Mitigation:** make the tenant id a required parameter of every retriever call, enforce it in the index, and test it with adversarial queries.
+</FailureMode>
+
+<FailureMode title="Silent recall loss in the ANN index" symptom="Some documents are never returned, even for queries that quote them verbatim.">
+**Why:** `efSearch` set too low, a poorly connected graph after heavy deletes, or aggressive quantisation. **Mitigation:** track recall@k against exact search on a fixed query sample. Rebuild indexes after large churn and tune `efSearch` per latency budget.
+</FailureMode>
+
+<FailureMode title="Score fusion on incompatible scales" symptom="Hybrid search behaves like pure lexical or pure dense search, depending on the query.">
+**Why:** raw BM25 and cosine scores were added directly, so whichever scale is larger dominates. **Mitigation:** fuse by rank with RRF, or normalise each retriever's scores per query before weighting.
+</FailureMode>
+
+<FailureMode title="One retriever takes the request down" symptom="A search-engine outage turns into a full RAG outage.">
+**Why:** retrievers ran in series, or a single failure rejected the whole request. **Mitigation:** run them in parallel with timeouts, degrade to the healthy retriever, and alert on the degradation.
+</FailureMode>

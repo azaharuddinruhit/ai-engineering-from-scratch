@@ -1,0 +1,166 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-17T11:30:00Z",
+  "title": "Design System: AI Engineering from Scratch",
+  "extensions": {
+    "colorMeta": {
+      "viridis-ink": { "role": "tertiary", "displayName": "Viridis Ink", "canonical": "#2a0b45", "tonalRamp": ["#1a0630", "#2a0b45", "#3f1a63", "#5a3285", "#7a55a6", "#a184c4", "#cbb9e0", "#f1ecf8"] },
+      "viridis-ink-inverse": { "role": "tertiary", "displayName": "Viridis Ink Inverse", "canonical": "#f1ecf8", "tonalRamp": ["#1a0630", "#2a0b45", "#3f1a63", "#5a3285", "#7a55a6", "#a184c4", "#cbb9e0", "#f1ecf8"] },
+      "plot-teal": { "role": "primary", "displayName": "Plot Teal", "canonical": "#1d7a74", "tonalRamp": ["#0a2725", "#134e4a", "#17625d", "#1d7a74", "#22938a", "#3fafa3", "#a6ddd6", "#eaf6f4"] },
+      "plot-teal-deep": { "role": "primary", "displayName": "Plot Teal Deep", "canonical": "#17625d", "tonalRamp": ["#0a2725", "#134e4a", "#17625d", "#1d7a74", "#22938a", "#3fafa3", "#a6ddd6", "#eaf6f4"] },
+      "plot-teal-bright": { "role": "primary", "displayName": "Plot Teal Bright", "canonical": "#3fafa3", "tonalRamp": ["#0a2725", "#134e4a", "#17625d", "#1d7a74", "#22938a", "#3fafa3", "#a6ddd6", "#eaf6f4"] },
+      "plot-teal-mist": { "role": "primary", "displayName": "Plot Teal Mist", "canonical": "#eaf6f4", "tonalRamp": ["#0a2725", "#134e4a", "#17625d", "#1d7a74", "#22938a", "#3fafa3", "#a6ddd6", "#eaf6f4"] },
+      "drawn-yellow": { "role": "secondary", "displayName": "Drawn Yellow", "canonical": "#f2d21b", "tonalRamp": ["#5c4f06", "#8a760a", "#b89e0f", "#e0c015", "#f2d21b", "#f6df55", "#f9ea93", "#fdf7d4"] },
+      "paper": { "role": "neutral", "displayName": "Paper", "canonical": "#ffffff", "tonalRamp": ["#13161d", "#1b1f28", "#282c37", "#4f5566", "#6a7080", "#99a0ae", "#dfe2e9", "#f7f8fa"] },
+      "paper-dark": { "role": "neutral", "displayName": "Paper Dark", "canonical": "#13161d", "tonalRamp": ["#13161d", "#1b1f28", "#282c37", "#4f5566", "#6a7080", "#99a0ae", "#dfe2e9", "#f7f8fa"] },
+      "inset": { "role": "neutral", "displayName": "Inset", "canonical": "#f7f8fa", "tonalRamp": ["#13161d", "#1b1f28", "#282c37", "#4f5566", "#6a7080", "#99a0ae", "#dfe2e9", "#f7f8fa"] },
+      "inset-dark": { "role": "neutral", "displayName": "Inset Dark", "canonical": "#1b1f28", "tonalRamp": ["#13161d", "#1b1f28", "#282c37", "#4f5566", "#6a7080", "#99a0ae", "#dfe2e9", "#f7f8fa"] },
+      "hairline": { "role": "neutral", "displayName": "Hairline", "canonical": "#dfe2e9", "tonalRamp": ["#13161d", "#1b1f28", "#282c37", "#4f5566", "#6a7080", "#99a0ae", "#dfe2e9", "#f7f8fa"] },
+      "hairline-dark": { "role": "neutral", "displayName": "Hairline Dark", "canonical": "#282c37", "tonalRamp": ["#13161d", "#1b1f28", "#282c37", "#4f5566", "#6a7080", "#99a0ae", "#dfe2e9", "#f7f8fa"] },
+      "body-text": { "role": "neutral", "displayName": "Body Text", "canonical": "#282c37", "tonalRamp": ["#13161d", "#1b1f28", "#282c37", "#4f5566", "#6a7080", "#99a0ae", "#dfe2e9", "#f7f8fa"] },
+      "body-text-dark": { "role": "neutral", "displayName": "Body Text Dark", "canonical": "#dfe2e9", "tonalRamp": ["#13161d", "#1b1f28", "#282c37", "#4f5566", "#6a7080", "#99a0ae", "#dfe2e9", "#f7f8fa"] },
+      "secondary-text": { "role": "neutral", "displayName": "Secondary Text", "canonical": "#4f5566", "tonalRamp": ["#13161d", "#1b1f28", "#282c37", "#4f5566", "#6a7080", "#99a0ae", "#dfe2e9", "#f7f8fa"] },
+      "muted-text": { "role": "neutral", "displayName": "Muted Text", "canonical": "#6a7080", "tonalRamp": ["#13161d", "#1b1f28", "#282c37", "#4f5566", "#6a7080", "#99a0ae", "#dfe2e9", "#f7f8fa"] },
+      "muted-text-dark": { "role": "neutral", "displayName": "Muted Text Dark", "canonical": "#99a0ae", "tonalRamp": ["#13161d", "#1b1f28", "#282c37", "#4f5566", "#6a7080", "#99a0ae", "#dfe2e9", "#f7f8fa"] },
+      "verdict-pass": { "role": "status", "displayName": "Verdict Pass", "canonical": "#047857", "tonalRamp": ["#022c22", "#064e3b", "#065f46", "#047857", "#059669", "#34d399", "#a7f3d0", "#ecfdf5"] },
+      "verdict-fail": { "role": "status", "displayName": "Verdict Fail", "canonical": "#e11d48", "tonalRamp": ["#4c0519", "#881337", "#9f1239", "#be123c", "#e11d48", "#fb7185", "#fecdd3", "#fff1f2"] },
+      "verdict-caution": { "role": "status", "displayName": "Verdict Caution", "canonical": "#92400e", "tonalRamp": ["#451a03", "#78350f", "#92400e", "#b45309", "#d97706", "#fbbf24", "#fde68a", "#fffbeb"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "The home page title only, set on two fixed lines; 2.75rem on phones, 4.5rem on tablets." },
+      "headline": { "displayName": "Headline", "purpose": "Lesson and module titles, with balanced wrapping." },
+      "title": { "displayName": "Title", "purpose": "Home page section headings." },
+      "lede": { "displayName": "Lede", "purpose": "The hero's generated sentence; lesson descriptions use it at 1.25rem." },
+      "body": { "displayName": "Body", "purpose": "Lesson prose at about 75ch; 1rem below 1024px." },
+      "label": { "displayName": "Label", "purpose": "Sentence-case sidebar module names, 'On this page', lab section titles." },
+      "data": { "displayName": "Data", "purpose": "Slider readouts, probabilities, stats and token text; never used to make a label look technical." }
+    },
+    "shadows": [
+      { "name": "lift-sm", "value": "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)", "purpose": "The only shadow: lab frames and the checked option of a segmented control." }
+    ],
+    "motion": [
+      { "name": "sample-sweep", "value": "520ms cubic-bezier(0.16, 1, 0.3, 1) backwards, staggered 70ms per word", "purpose": "The live sampler's yellow highlighter sweep on load and after each draw; skipped under prefers-reduced-motion. The only autonomous motion on the site." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "xl", "value": "1280px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The main action on a page; named by what it does.",
+      "html": "<button class=\"ds-btn-primary\">Start Module 1</button>",
+      "css": ".ds-btn-primary { background: var(--color-teal-600, #1d7a74); color: #fff; padding: 10px 20px; border: 0; border-radius: 6px; font-family: var(--font-sans, 'IBM Plex Sans Variable', ui-sans-serif, system-ui, sans-serif); font-size: 0.9375rem; font-weight: 600; cursor: pointer; } .ds-btn-primary:hover { background: var(--color-teal-700, #17625d); } .ds-btn-primary:focus-visible { outline: 2px solid var(--color-teal-500, #22938a); outline-offset: 2px; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "A quieter alternative action beside a primary button.",
+      "html": "<button class=\"ds-btn-secondary\">Browse the curriculum</button>",
+      "css": ".ds-btn-secondary { background: #fff; color: var(--color-graphite-800, #282c37); padding: 10px 20px; border: 1px solid var(--color-graphite-300, #c9ced8); border-radius: 6px; font-family: var(--font-sans, 'IBM Plex Sans Variable', ui-sans-serif, system-ui, sans-serif); font-size: 0.9375rem; font-weight: 600; cursor: pointer; } .ds-btn-secondary:hover { background: var(--color-graphite-50, #f7f8fa); } .ds-btn-secondary:focus-visible { outline: 2px solid var(--color-teal-500, #22938a); outline-offset: 2px; }"
+    },
+    {
+      "name": "Query Input",
+      "kind": "input",
+      "description": "Lab text input on an inset fill; mono because the value is data.",
+      "html": "<input class=\"ds-input\" aria-label=\"Search query\" value=\"what does ERR-4012 mean\">",
+      "css": ".ds-input { width: 100%; padding: 8px 12px; background: var(--color-graphite-50, #f7f8fa); color: var(--color-graphite-800, #282c37); border: 1px solid var(--color-graphite-200, #dfe2e9); border-radius: 8px; font-family: var(--font-mono, 'JetBrains Mono Variable', ui-monospace, monospace); font-size: 0.75rem; } .ds-input::placeholder { color: var(--color-graphite-500, #6a7080); } .ds-input:focus-visible { outline: 2px solid var(--color-teal-500, #22938a); outline-offset: 2px; }"
+    },
+    {
+      "name": "Segmented Control",
+      "kind": "custom",
+      "description": "A radio group on an inset track; the checked option lifts onto paper.",
+      "html": "<div class=\"ds-seg\" role=\"radiogroup\" aria-label=\"Strategy\"><label class=\"ds-seg-opt\"><input type=\"radio\" name=\"ds-seg\">Fixed-size</label><label class=\"ds-seg-opt\"><input type=\"radio\" name=\"ds-seg\" checked>Recursive</label><label class=\"ds-seg-opt\"><input type=\"radio\" name=\"ds-seg\">Semantic</label></div>",
+      "css": ".ds-seg { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; background: var(--color-graphite-100, #eef0f4); border-radius: 8px; } .ds-seg-opt { flex: 1 1 auto; padding: 4px 12px; border-radius: 6px; text-align: center; white-space: nowrap; font-family: var(--font-sans, 'IBM Plex Sans Variable', ui-sans-serif, system-ui, sans-serif); font-size: 0.75rem; font-weight: 500; color: var(--color-graphite-600, #4f5566); cursor: pointer; } .ds-seg-opt input { position: absolute; opacity: 0; width: 1px; height: 1px; } .ds-seg-opt:has(input:checked) { background: #fff; color: var(--heading, #2a0b45); box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1); } .ds-seg-opt:has(input:focus-visible) { outline: 2px solid var(--color-teal-500, #22938a); }"
+    },
+    {
+      "name": "Preset Chip",
+      "kind": "chip",
+      "description": "Outline chip that fills a query; the active one turns teal.",
+      "html": "<button class=\"ds-chip\" aria-pressed=\"true\">Exact error code</button> <button class=\"ds-chip\" aria-pressed=\"false\">Paraphrase</button>",
+      "css": ".ds-chip { padding: 2px 10px; background: transparent; color: var(--color-graphite-600, #4f5566); border: 1px solid var(--color-graphite-200, #dfe2e9); border-radius: 9999px; font-family: var(--font-sans, 'IBM Plex Sans Variable', ui-sans-serif, system-ui, sans-serif); font-size: 0.75rem; cursor: pointer; } .ds-chip:hover { border-color: var(--color-teal-400, #3fafa3); } .ds-chip[aria-pressed=\"true\"] { background: var(--color-teal-50, #eaf6f4); color: var(--color-teal-700, #17625d); border-color: var(--color-teal-500, #22938a); } .ds-chip:focus-visible { outline: 2px solid var(--color-teal-500, #22938a); outline-offset: 2px; }"
+    },
+    {
+      "name": "Verdict Badge",
+      "kind": "chip",
+      "description": "A lab outcome: tinted fill, drawn icon and a word, never colour alone.",
+      "html": "<span class=\"ds-verdict ds-verdict-pass\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M5 13l4 4L19 7\"/></svg>BM25</span> <span class=\"ds-verdict ds-verdict-fail\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M6 6l12 12M18 6L6 18\"/></svg>Dense</span>",
+      "css": ".ds-verdict { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 4px; font-family: var(--font-sans, 'IBM Plex Sans Variable', ui-sans-serif, system-ui, sans-serif); font-size: 0.75rem; font-weight: 500; } .ds-verdict svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; } .ds-verdict-pass { background: #d1fae5; color: #065f46; } .ds-verdict-fail { background: #ffe4e6; color: #9f1239; }"
+    },
+    {
+      "name": "Lab Frame",
+      "kind": "card",
+      "refersTo": "lab-frame",
+      "description": "The container for every interactive lab: inset header, paper body, the one soft lift.",
+      "html": "<section class=\"ds-lab\"><header class=\"ds-lab-head\"><h3>Chunking Lab</h3><p>Split a document three ways and watch where each strategy cuts a sentence in half.</p></header><div class=\"ds-lab-body\"><p>Chunk size <span class=\"ds-data\">60 tokens</span></p></div></section>",
+      "css": ".ds-lab { background: #fff; border: 1px solid var(--color-graphite-200, #dfe2e9); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1); font-family: var(--font-sans, 'IBM Plex Sans Variable', ui-sans-serif, system-ui, sans-serif); } .ds-lab-head { padding: 16px 20px; background: var(--color-graphite-50, #f7f8fa); border-bottom: 1px solid var(--color-graphite-200, #dfe2e9); } .ds-lab-head h3 { margin: 0; font-size: 1.125rem; font-weight: 600; color: var(--heading, #2a0b45); } .ds-lab-head p { margin: 4px 0 0; font-size: 0.875rem; color: var(--color-graphite-600, #4f5566); } .ds-lab-body { padding: 20px; font-size: 0.875rem; color: var(--color-graphite-800, #282c37); } .ds-data { font-family: var(--font-mono, 'JetBrains Mono Variable', ui-monospace, monospace); font-size: 0.75rem; color: var(--color-graphite-600, #4f5566); }"
+    },
+    {
+      "name": "Production Tip Callout",
+      "kind": "card",
+      "refersTo": "callout-tip",
+      "description": "Tinted callout with a full hairline border, never a thick side bar.",
+      "html": "<aside class=\"ds-callout\"><strong>Production tip</strong><p>Store a hash of each chunk's text so re-ingestion only re-embeds what changed.</p></aside>",
+      "css": ".ds-callout { padding: 16px 20px; background: var(--color-teal-50, #eaf6f4); border: 1px solid var(--color-teal-200, #a6ddd6); border-radius: 8px; font-family: var(--font-sans, 'IBM Plex Sans Variable', ui-sans-serif, system-ui, sans-serif); color: var(--color-graphite-800, #282c37); } .ds-callout strong { color: var(--color-teal-800, #134e4a); font-weight: 600; } .ds-callout p { margin: 4px 0 0; line-height: 1.7; }"
+    },
+    {
+      "name": "Curriculum Sidebar",
+      "kind": "nav",
+      "description": "Sentence-case module heading, lessons on a 1px rule; the current lesson takes a teal rule.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Curriculum\"><h2>2. Knowledge Grounding &amp; RAG</h2><ul><li><a href=\"#\">Embeddings &amp; Vector Geometry</a></li><li><a href=\"#\" aria-current=\"page\">Vector Search &amp; Hybrid Retrieval</a></li><li><a href=\"#\">Post-Retrieval &amp; Grounding</a></li></ul></nav>",
+      "css": ".ds-nav { font-family: var(--font-sans, 'IBM Plex Sans Variable', ui-sans-serif, system-ui, sans-serif); } .ds-nav h2 { margin: 0 0 8px; font-size: 0.8125rem; font-weight: 600; color: var(--heading, #2a0b45); } .ds-nav ul { margin: 0; padding: 0; list-style: none; border-left: 1px solid var(--color-graphite-200, #dfe2e9); } .ds-nav a { display: block; margin-left: -1px; padding: 4px 12px; border-left: 1px solid transparent; font-size: 0.875rem; color: var(--color-graphite-700, #3b4050); text-decoration: none; } .ds-nav a:hover { color: var(--heading, #2a0b45); border-left-color: var(--color-graphite-400, #99a0ae); } .ds-nav a[aria-current=\"page\"] { color: var(--color-teal-700, #17625d); border-left-color: var(--color-teal-600, #1d7a74); font-weight: 500; } .ds-nav a:focus-visible { outline: 2px solid var(--color-teal-500, #22938a); outline-offset: 2px; }"
+    },
+    {
+      "name": "Live Sampler",
+      "kind": "custom",
+      "refersTo": "drawn-mark",
+      "description": "Signature: a sentence of sampled tokens; words that were not the top choice wear Drawn Yellow, and the panel shows the focused word's candidates.",
+      "html": "<div class=\"ds-sampler\"><p class=\"ds-sentence\"><button>Think</button> <button class=\"ds-drawn\">of</button> <button>models</button> <button>as</button> <button>what</button> <button>they</button> <button>are:</button> <button class=\"ds-drawn\" aria-pressed=\"true\">capable</button></p><ul class=\"ds-probs\"><li><code>powerful</code><span class=\"ds-bar\"><i style=\"width:48%\"></i></span><span>48%</span></li><li><code>capable</code><span class=\"ds-bar\"><i class=\"ds-bar-drawn\" style=\"width:27%\"></i></span><span>27%</span></li><li><code>useful</code><span class=\"ds-bar\"><i style=\"width:14%\"></i></span><span>14%</span></li></ul></div>",
+      "css": ".ds-sampler { font-family: var(--font-sans, 'IBM Plex Sans Variable', ui-sans-serif, system-ui, sans-serif); } .ds-sentence { margin: 0 0 16px; font-size: 1.75rem; line-height: 1.45; color: var(--color-graphite-800, #282c37); } .ds-sentence button { font: inherit; color: inherit; background: none; border: 0; padding: 0 2px; border-radius: 4px; border-bottom: 1px solid var(--color-graphite-300, #c9ced8); cursor: pointer; } .ds-sentence button:hover { border-bottom-color: var(--color-teal-600, #1d7a74); } .ds-sentence button[aria-pressed=\"true\"] { border-bottom: 2px solid var(--color-teal-600, #1d7a74); } .ds-sentence .ds-drawn { background: var(--color-mark, #f2d21b); color: var(--color-mark-ink, #2a0b45); } .ds-sentence button:focus-visible { outline: 2px solid var(--color-teal-500, #22938a); outline-offset: 2px; } .ds-probs { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; max-width: 22rem; } .ds-probs li { display: grid; grid-template-columns: 7rem 1fr 3rem; align-items: center; gap: 12px; font-family: var(--font-mono, 'JetBrains Mono Variable', ui-monospace, monospace); font-size: 0.75rem; color: var(--color-graphite-600, #4f5566); } .ds-probs li span:last-child { text-align: right; font-variant-numeric: tabular-nums; } .ds-bar { height: 6px; background: var(--color-graphite-100, #eef0f4); border-radius: 9999px; overflow: hidden; } .ds-bar i { display: block; height: 100%; background: var(--color-teal-500, #22938a); border-radius: 9999px; } .ds-bar .ds-bar-drawn { background: var(--color-mark, #f2d21b); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Annotated Plot",
+    "overview": "Every lab in this course is a chart: a probability distribution, a chunk-size histogram, an embedding scatter, a recall curve. The design system treats the whole site the same way. The palette is drawn from viridis, the default colour map of scientific plotting, and colour is spent on data: the bars, the highlighted values, the verdicts. Everything around the data is annotation, set in a calm, engineered sans that a working engineer can read for twenty-five minutes with an editor open beside it.\n\nThe surface is a reading surface first. Lessons are long, so the prose is generous (18px sans on wide screens, about 75 characters a line) and the chrome recedes: hairline borders, cool neutral greys, no ornament. Controls are quiet and small; when a learner moves one, the change shows up loudly in the plot it drives. The home page earns its one moment of theatre the same way: the opening sentence is generated by a live sampler, and the token that was drawn is marked in yellow.\n\nDensity is moderate. Docs pages use the familiar three columns (curriculum, article, contents) because learners already know how to navigate them; distinctiveness lives in type, colour discipline and the labs, not in novel navigation.",
+    "keyCharacteristics": [
+      "Viridis palette: violet ink, plot teal, drawn yellow, cool graphite neutrals.",
+      "One sans (IBM Plex Sans) for reading and interface; one mono (JetBrains Mono) only for code, numbers and measurements.",
+      "Quiet controls, loud data.",
+      "Flat surfaces with hairline borders; one soft shadow lifts interactive labs off the page.",
+      "Light and dark themes are equal citizens; every token has a dark counterpart."
+    ],
+    "rules": [
+      { "name": "The Drawn Yellow Rule", "body": "Yellow marks exactly one thing: a value that was chosen, drawn or matched. Never a button, a background panel, a heading or decoration. If nothing was chosen, nothing is yellow.", "section": "colors" },
+      { "name": "The Data Gets the Colour Rule", "body": "Saturated colour belongs to plots, highlights and verdicts. Chrome (headers, sidebars, panels, borders) stays graphite. If a control is more colourful than the value it changes, it is wrong.", "section": "colors" },
+      { "name": "The 4.5 Floor Rule", "body": "No text is lighter than Muted Text on its background (4.5:1 in both themes). Grey text on a grey fill steps up to Secondary Text.", "section": "colors" },
+      { "name": "The Sans Reads, Mono Measures Rule", "body": "If a learner reads it, it is sans. If it is a number, token, identifier or code, it is mono. Mono is never used to make a label look technical.", "section": "typography" },
+      { "name": "The No Shouting Rule", "body": "No uppercase labels, no tracked-out eyebrows above headings. A heading carries its own weight; supporting context goes below it in italic or muted text.", "section": "typography" },
+      { "name": "The Flat-By-Default Rule", "body": "Static content never casts a shadow. Only things a learner manipulates get the one soft lift.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do spend colour on data: probability bars, highlights and verdicts carry the palette, chrome stays graphite.",
+      "Do mark the chosen, drawn or matched value with Drawn Yellow (#f2d21b) and Viridis Ink text, and nothing else.",
+      "Do set reading text in IBM Plex Sans and every number, token and code sample in JetBrains Mono.",
+      "Do write formulas as TeX ($…$ inline, $$…$$ display), not as inline code or a text code block.",
+      "Do use `text-muted` (#6a7080 / #99a0ae) as the lightest text colour, and Secondary Text on grey fills.",
+      "Do draw sequences as paths or numbered rows (curriculum, lesson lists, lesson parts).",
+      "Do give every colour-coded state a drawn icon or a word as well.",
+      "Do define every new colour for both light and dark themes."
+    ],
+    "donts": [
+      "Don't put an uppercase or tracked-out label above a heading.",
+      "Don't join metadata with middle dots or append \"→\" to button and link text.",
+      "Don't use Unicode glyphs (✓, ✕, →) as icons; draw them as SVG.",
+      "Don't give callouts or cards a thick coloured side border.",
+      "Don't use yellow for buttons, backgrounds or decoration.",
+      "Don't lay out a sequence as a grid of identical cards.",
+      "Don't add entrance animations to sections; the live sampler's sweep is the only autonomous motion."
+    ]
+  }
+}

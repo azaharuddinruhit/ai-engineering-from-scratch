@@ -1,0 +1,62 @@
+---
+import 'katex/dist/katex.min.css';
+import { getCollection, render } from 'astro:content';
+import DocsLayout from '@/layouts/DocsLayout.astro';
+import LessonComplete from '@/components/layout/LessonComplete.astro';
+import LessonPager from '@/components/layout/LessonPager.astro';
+import TableOfContents from '@/components/layout/TableOfContents.astro';
+import { getCurriculum, lessonSlug, neighbours, type LessonEntry } from '@/lib/curriculum';
+import { moduleHref } from '@/lib/paths';
+
+export async function getStaticPaths() {
+  const lessons = await getCollection('lessons');
+  return lessons.map((lesson) => ({
+    params: { module: lesson.data.module.id, lesson: lessonSlug(lesson) },
+    props: { lesson },
+  }));
+}
+
+interface Props {
+  lesson: LessonEntry;
+}
+
+const { lesson } = Astro.props;
+const { Content, headings } = await render(lesson);
+const curriculum = await getCurriculum();
+const { module } = curriculum.find((m) => m.module.id === lesson.data.module.id)!;
+const { previous, next } = neighbours(curriculum, lesson.id);
+---
+
+<DocsLayout title={lesson.data.title} description={lesson.data.description}>
+  <article class="mx-auto max-w-3xl">
+    <header class="mb-10 border-b border-graphite-200 pb-8 dark:border-graphite-800">
+      <a
+        href={moduleHref(module.id)}
+        class="text-sm font-medium text-teal-700 hover:underline hover:underline-offset-2 dark:text-teal-300"
+      >
+        Module {module.data.number}: {module.data.title}
+      </a>
+      <h1 class="mt-3 text-4xl font-semibold leading-[1.05] tracking-[-0.02em] text-heading text-balance sm:text-5xl">
+        {lesson.data.title}
+      </h1>
+      <p class="mt-4 text-xl leading-relaxed text-graphite-600 dark:text-graphite-400">{lesson.data.description}</p>
+      <dl class="mt-5 flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted">
+        <div><dt class="sr-only">Reading time</dt><dd>{lesson.data.minutes} min read</dd></div>
+        <div><dt class="inline">Playground:</dt> <dd class="inline italic">{lesson.data.playground}</dd></div>
+      </dl>
+    </header>
+
+    <div
+      class="prose max-w-none lg:prose-lg prose-headings:scroll-mt-20 prose-headings:font-semibold prose-headings:tracking-tight prose-a:underline-offset-2 prose-code:before:content-none prose-code:after:content-none prose-pre:bg-transparent prose-pre:p-4"
+    >
+      <Content />
+    </div>
+
+    <footer class="mt-14 space-y-8 border-t border-graphite-200 pt-8 dark:border-graphite-800">
+      <LessonComplete lessonId={lesson.id} />
+      <LessonPager previous={previous} next={next} />
+    </footer>
+  </article>
+
+  <TableOfContents slot="aside" headings={headings} />
+</DocsLayout>

@@ -1,0 +1,195 @@
+---
+title: Embeddings & Vector Geometry
+description: How embedding models turn meaning into geometry, when cosine similarity and dot product disagree, and how to choose an embedding model you can live with.
+module: rag
+order: 1
+minutes: 22
+playground: Embedding Space Explorer
+---
+
+import Callout from '@/components/content/Callout.astro';
+import FailureMode from '@/components/content/FailureMode.astro';
+import FlowDiagram from '@/components/content/FlowDiagram.astro';
+import EmbeddingExplorer from '@/components/visualizers/EmbeddingExplorer';
+
+## Mental model
+
+A language model can only answer from what's in its context window. **Retrieval-Augmented Generation (RAG)** fills that window with the passages from *your* data that are most relevant to the question. Doing that at scale needs a way to compare meaning quickly, and that is what embeddings give you.
+
+An **embedding model** maps a piece of text to a fixed-length vector of numbers, typically a few hundred to a few thousand dimensions. It is trained (usually contrastively, by pulling matching pairs together and pushing unrelated texts apart) so that **texts with similar meaning end up close together** in that space. Searching by meaning then becomes a geometry problem: find the stored vectors nearest to the query vector.
+
+<FlowDiagram
+  caption="Semantic search reduces to nearest-neighbour search once text is embedded. Documents are embedded once at ingestion; queries at request time."
+  steps={[
+    { label: 'Documents', detail: 'chunked at ingestion' },
+    { label: 'Embedding model', detail: 'text → vector', focus: true },
+    { label: 'Vector index', detail: 'stored with metadata' },
+    { label: 'Query vector', detail: 'same model', focus: true },
+    { label: 'Nearest neighbours', detail: 'cosine / dot product', focus: true },
+  ]}
+/>
+
+### Measuring closeness
+
+Three metrics are common, and the differences matter:
+
+- **Dot product** $\mathbf{a} \cdot \mathbf{b} = \sum_i a_i b_i$: the sum of element-wise products. It grows with both the angle *and* the lengths of the vectors.
+- **Cosine similarity** $\cos(\mathbf{a}, \mathbf{b}) = \frac{\mathbf{a} \cdot \mathbf{b}}{\lVert \mathbf{a} \rVert \, \lVert \mathbf{b} \rVert}$: the dot product of the vectors' directions only, ranging from −1 to 1. Length is ignored.
+- **Euclidean distance** $\lVert \mathbf{a} - \mathbf{b} \rVert$: straight-line distance.
+
+For **unit-length (L2-normalised) vectors all three produce the same ranking**: cosine equals the dot product, and squared Euclidean distance equals $2 - 2\cos(\mathbf{a}, \mathbf{b})$. Many embedding APIs already return normalised vectors, so the choice only matters when they don't. In that case, use the metric the model was trained with. Some models deliberately encode information in vector length and expect dot product. Others assume cosine.
+
+### What lives in the dimensions
+
+Real embedding dimensions are not individually interpretable. Meaning is spread across all of them. The playground uses a toy model with 12 *named* dimensions so you can see the geometry, but it shares three behaviours with real models:
+
+- **Ambiguous words land between their meanings.** Without surrounding context, "python" is part code, part snake.
+- **Unknown tokens carry no signal.** Real models don't have a fixed vocabulary, but rare identifiers such as `ERR-4012` or SKU numbers get vague, unreliable embeddings. Exact-match search handles them better (lesson 3).
+- **Longer texts accumulate magnitude** before normalisation, which biases raw dot products toward long documents.
+
+### Choosing an embedding model
+
+| Consideration | Why it matters |
+| --- | --- |
+| **Retrieval quality on your data** | Public leaderboards such as MTEB are a starting point. A small labelled set of your own queries and relevant passages decides. |
+| **Dimensions** | Storage and search cost scale linearly. 1M chunks × 1,536 float32 dimensions ≈ 6.1 GB of raw vectors, before index overhead. Some models support truncating dimensions (Matryoshka training) or int8/binary quantisation. |
+| **Max input length** | Text beyond the limit is silently truncated, so chunk sizes must fit inside it. |
+| **Query/document asymmetry** | Many models expect a different prefix or instruction for queries than for documents. Leaving it out degrades retrieval quietly. |
+| **Languages and domains** | Multilingual corpora, code and specialised jargon each need a model trained on similar data. |
+| **Hosting** | An API is simple. A local model avoids per-call cost and keeps data in-house, but you serve it yourself. |
+
+<Callout type="warning" title="Vectors are tied to the model that made them">
+Vectors from different models, or from different versions of the same model, live in incompatible spaces. You cannot compare them or mix them in one index. Changing the embedding model means re-embedding the whole corpus, so store the model identifier with every vector.
+</Callout>
+
+## Playground
+
+Every sentence and your query are embedded with the 12-concept toy model. The scatter plot projects all 12 dimensions down to two with PCA, so read it as approximate.
+
+1. Query **refund price** with cosine similarity: the short billing sentences `m1` and `m2` win. Switch to **dot product**. The long review `a2` jumps to the top because its vector is roughly twice as long. It isn't more relevant, just bigger.
+2. Query **python**. Its nearest neighbour is the code sentence `c1`, but the pets sentences come next: one ambiguous word pulls the vector toward both meanings. Then query **bank** and compare `m1` (money) with `a1` (the river).
+3. Query **ERR-4012**. Nothing is recognised, the query vector is all zeros, and every similarity is 0. Keep this failure in mind: lesson 3 fixes it.
+
+<EmbeddingExplorer client:visible />
+
+## Production pattern: a caching, normalising embedding service
+
+Embedding calls are cheap one at a time and expensive in bulk: re-ingesting a corpus or re-embedding unchanged documents quickly adds up. Wrap the provider in a service that **batches** requests, **caches by content hash** (including the model name, so a model change invalidates the cache), and **normalises** vectors once, so every downstream similarity is a plain dot product:
+
+```ts
+import { createHash } from 'node:crypto';
+
+/** Provider adapter: embeds a batch of texts with one API call. */
+export type EmbedBatch = (texts: string[]) => Promise<number[][]>;
+
+export function l2Normalize(values: ArrayLike<number>): Float32Array {
+  const vector = Float32Array.from(values);
+  const length = Math.hypot(...vector);
+  return length === 0 ? vector : vector.map((v) => v / length);
+}
+
+export class EmbeddingService {
+  private readonly cache = new Map<string, Float32Array>();
+
+  constructor(
+    readonly model: string,
+    private readonly embedBatch: EmbedBatch,
+    private readonly batchSize = 64,
+  ) {}
+
+  async embed(texts: string[]): Promise<Float32Array[]> {
+    const keys = texts.map((t) => createHash('sha256').update(`${this.model}\0${t}`).digest('hex'));
+    const textByKey = new Map(keys.map((key, i) => [key, texts[i]]));
+    const missing = [...new Set(keys)].filter((key) => !this.cache.has(key));
+
+    for (let i = 0; i < missing.length; i += this.batchSize) {
+      const batch = missing.slice(i, i + this.batchSize);
+      const vectors = await this.embedBatch(batch.map((key) => textByKey.get(key)!));
+      if (vectors.length !== batch.length) {
+        throw new Error(`Expected ${batch.length} embeddings, received ${vectors.length}`);
+      }
+      batch.forEach((key, j) => this.cache.set(key, l2Normalize(vectors[j])));
+    }
+    return keys.map((key) => this.cache.get(key)!);
+  }
+}
+
+/** Exact nearest neighbours. With unit vectors, the dot product is cosine similarity. */
+export function topK(query: Float32Array, docs: readonly Float32Array[], k: number) {
+  return docs
+    .map((doc, index) => {
+      if (doc.length !== query.length) throw new Error('Embedding dimensions do not match');
+      let score = 0;
+      for (let i = 0; i < doc.length; i++) score += doc[i] * query[i];
+      return { index, score };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, k);
+}
+```
+
+In Python, NumPy turns the search into a single matrix-vector product:
+
+```python
+import hashlib
+from collections.abc import Callable, Sequence
+
+import numpy as np
+
+EmbedBatch = Callable[[list[str]], list[list[float]]]
+
+
+class EmbeddingService:
+    def __init__(self, model: str, embed_batch: EmbedBatch, batch_size: int = 64) -> None:
+        self.model = model
+        self._embed_batch = embed_batch
+        self._batch_size = batch_size
+        self._cache: dict[str, np.ndarray] = {}
+
+    def embed(self, texts: Sequence[str]) -> np.ndarray:
+        """Returns an (n, d) float32 matrix of L2-normalised rows."""
+        keys = [hashlib.sha256(f"{self.model}\0{t}".encode()).hexdigest() for t in texts]
+        text_by_key = dict(zip(keys, texts))
+        missing = [k for k in dict.fromkeys(keys) if k not in self._cache]
+
+        for i in range(0, len(missing), self._batch_size):
+            batch = missing[i : i + self._batch_size]
+            vectors = np.asarray(self._embed_batch([text_by_key[k] for k in batch]), dtype=np.float32)
+            if vectors.shape[0] != len(batch):
+                raise ValueError(f"Expected {len(batch)} embeddings, received {vectors.shape[0]}")
+            norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+            vectors /= np.where(norms == 0, 1, norms)
+            self._cache.update(zip(batch, vectors))
+
+        return np.stack([self._cache[k] for k in keys])
+
+
+def top_k(query: np.ndarray, docs: np.ndarray, k: int) -> list[tuple[int, float]]:
+    scores = docs @ query  # cosine similarity, because rows and query are unit vectors
+    best = np.argsort(-scores)[:k]
+    return [(int(i), float(scores[i])) for i in best]
+```
+
+The in-memory cache is for illustration. In production, persist vectors keyed by the same content hash, alongside the model identifier.
+
+## Failure modes
+
+<FailureMode title="Mixed embedding spaces" symptom="Retrieval quality collapses after a deploy, with no errors anywhere.">
+**Why:** queries were embedded with a new model or version while the index still holds vectors from the old one. **Mitigation:** store the model id with each vector and refuse to query across models. Migrate by building a new index in parallel, re-embedding everything, and switching over atomically.
+</FailureMode>
+
+<FailureMode title="Length bias from the wrong metric" symptom="Long, rambling documents dominate results for every query.">
+**Why:** unnormalised vectors compared by dot product, so magnitude beats relevance. **Mitigation:** normalise vectors, or use the metric the model was trained for, and verify with a few known-good queries.
+</FailureMode>
+
+<FailureMode title="Missing query/document prefixes" symptom="Retrieval is mediocre even though the model tops public benchmarks.">
+**Why:** an asymmetric model expects different prefixes or instructions for queries and passages. **Mitigation:** follow the model card exactly, and test with and without prefixes on your own evaluation queries.
+</FailureMode>
+
+<FailureMode title="Identifiers and rare terms" symptom="Searching for an error code, SKU or person's name returns plausible but wrong passages.">
+**Why:** embeddings capture general meaning, not exact strings. **Mitigation:** combine dense search with lexical search (lesson 3), and route identifier-like queries to exact-match lookups.
+</FailureMode>
+
+<FailureMode title="Silent truncation at the input limit" symptom="Facts near the end of long chunks are never retrieved.">
+**Why:** text beyond the model's maximum input length was dropped before embedding. **Mitigation:** count tokens with the embedding model's tokenizer and keep every chunk under its limit (next lesson).
+</FailureMode>

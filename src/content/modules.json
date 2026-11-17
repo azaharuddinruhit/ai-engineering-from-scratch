@@ -1,0 +1,73 @@
+[
+  {
+    "id": "foundations",
+    "number": 1,
+    "title": "Foundations & Model Mechanics",
+    "tagline": "Controlling non-determinism",
+    "summary": "Treat the model as a probabilistic software component: what you pay for, how a token is chosen, how context shapes behaviour, and how to force machine-readable output.",
+    "status": "available",
+    "topics": [
+      "The AI engineering stack",
+      "Inference & decoding mechanics",
+      "Context & prompt engineering",
+      "Deterministic structured outputs"
+    ]
+  },
+  {
+    "id": "rag",
+    "number": 2,
+    "title": "Knowledge Grounding & RAG",
+    "tagline": "Connecting models to data",
+    "summary": "Embed, chunk, index and retrieve your own data, then ground answers in it with reranking, citations and hallucination checks.",
+    "status": "available",
+    "topics": [
+      "Embeddings & vector geometry",
+      "Data ingestion & chunking strategies",
+      "Vector search & hybrid retrieval",
+      "Post-retrieval & grounding"
+    ]
+  },
+  {
+    "id": "agents",
+    "number": 3,
+    "title": "Tool Use & Agentic Systems",
+    "tagline": "Giving models agency",
+    "summary": "Let models call tools safely, speak MCP, run bounded control loops, remember across sessions and coordinate with other agents.",
+    "status": "upcoming",
+    "topics": [
+      "Function & tool calling",
+      "Model Context Protocol (MCP)",
+      "Single-agent control loops",
+      "Agent memory systems",
+      "Multi-agent orchestration"
+    ]
+  },
+  {
+    "id": "customization",
+    "number": 4,
+    "title": "Model Customization & Post-Training",
+    "tagline": "Changing the model itself",
+    "summary": "Know when prompting stops being enough, then curate data, fine-tune with LoRA/QLoRA, align with preferences and distil into cheaper models.",
+    "status": "upcoming",
+    "topics": [
+      "The optimization ladder",
+      "Dataset engineering",
+      "Parameter-efficient fine-tuning (PEFT)",
+      "Alignment & distillation"
+    ]
+  },
+  {
+    "id": "production",
+    "number": 5,
+    "title": "Production, LLMOps & Security",
+    "tagline": "Hardening for scale",
+    "summary": "Prove quality with evals, see every hop with traces, cut latency and cost, and defend against prompt injection and data leakage.",
+    "status": "upcoming",
+    "topics": [
+      "Evaluation frameworks (evals)",
+      "Observability & tracing",
+      "Latency & cost engineering",
+      "Guardrails & AI security"
+    ]
+  }
+]

@@ -1,0 +1,261 @@
+---
+title: Data Ingestion & Chunking Strategies
+description: Turn messy PDFs, tables and code into clean, well-sized, well-labelled chunks. Compare fixed, recursive and semantic chunking, and the real cost of overlap.
+module: rag
+order: 2
+minutes: 24
+playground: Chunking Lab
+---
+
+import Callout from '@/components/content/Callout.astro';
+import FailureMode from '@/components/content/FailureMode.astro';
+import FlowDiagram from '@/components/content/FlowDiagram.astro';
+import ChunkingLab from '@/components/visualizers/ChunkingLab';
+
+## Mental model
+
+Retrieval can only return what ingestion produced. If a table was flattened into gibberish, a rule was split from its exception, or a chunk lost the heading that said which product it describes, no ranking algorithm will recover it. **Most RAG quality problems are ingestion problems.**
+
+<FlowDiagram
+  caption="An ingestion pipeline. It runs offline, but its output bounds the quality of every answer."
+  steps={[
+    { label: 'Load', detail: 'PDF, HTML, docs, code' },
+    { label: 'Parse & clean', detail: 'structure, tables, OCR', focus: true },
+    { label: 'Deduplicate', detail: 'hash / near-dup' },
+    { label: 'Chunk', detail: 'size, boundaries, overlap', focus: true },
+    { label: 'Enrich', detail: 'titles, paths, ACLs', focus: true },
+    { label: 'Embed & upsert', detail: 'stable ids' },
+  ]}
+/>
+
+### Parsing messy documents
+
+- **PDFs** store positioned glyphs, not paragraphs. Naive extraction interleaves columns, repeats headers and footers on every page, and breaks hyphenated words. Use a layout-aware parser, strip page furniture, and run OCR on scanned pages.
+- **Tables** lose their meaning when flattened into a stream of cells. Convert them to Markdown, or to one sentence per row that repeats the column names ("Plan: Pro · Log retention: 30 days"), so every chunk stands on its own.
+- **Code** should be split along syntax (functions, classes) rather than by character count, and keep the file path and signature with each piece.
+- **Duplicates** (the same FAQ in three places, versioned copies of a policy) waste context and outvote the correct version. Hash normalised text for exact duplicates, use MinHash or similar for near-duplicates, and keep only the most recent version.
+
+### Choosing a chunk size
+
+Chunk size is a trade-off between **precision** and **context**:
+
+- **Small chunks** (≈100–200 tokens) embed a single idea, so they match precisely. But they can lose the context that made them meaningful, such as which plan a rule applies to or the exception in the next sentence.
+- **Large chunks** (≈500–1,000 tokens) keep context but blur several topics into one vector. Each retrieved chunk also costs more of your prompt budget.
+
+There is no universal right size. Start around 200–500 tokens, keep chunks under the embedding model's input limit, and tune against retrieval evals on your own questions.
+
+### Strategies
+
+| Strategy | How it splits | Strengths | Weaknesses |
+| --- | --- | --- | --- |
+| **Fixed-size** | Every *N* tokens | Simple, predictable sizes | Cuts sentences, tables and code mid-way |
+| **Recursive** | Paragraphs, then lines, then sentences, then words, as needed | Respects natural boundaries; a strong default | Sizes vary; unaware of meaning |
+| **Semantic** | Where adjacent sentences' embeddings diverge | Chunks follow topic shifts | Needs embeddings at ingest; can produce tiny or huge chunks |
+| **Structure-aware** | Along headings, HTML elements, code syntax | Uses the author's own structure | Needs a parser per format |
+
+### Overlap and contextual headers
+
+**Overlap** repeats the last few tokens of one chunk at the start of the next, so a sentence near a boundary appears whole somewhere. It costs storage and embedding spend, and it returns near-duplicate results. Typical values are 10–20% of the chunk size.
+
+**Contextual headers** are often a better fix. Prepend the document title and section path ("Acme Handbook › Billing › Refunds") to the text you embed. A chunk that says only "after 14 days, refunds are not available" becomes findable by a query about annual plans. A related pattern, **small-to-big retrieval**, embeds small chunks for precise matching but sends the surrounding parent section to the model.
+
+## Playground
+
+The lab chunks a short product handbook. Superscript numbers mark where each chunk starts, and yellow highlighted text is overlap that appears in two chunks.
+
+1. Start with **Fixed-size**, 60 tokens, 10 overlap. Count the mid-sentence cuts. Every one of them is a chunk whose embedding mixes two half-ideas.
+2. Switch to **Recursive**. Mid-sentence cuts drop to zero, and chunks follow paragraphs, at the cost of uneven sizes.
+3. Switch to **Semantic**. Chunks follow topics, but some are tiny: a heading on its own is a 4-token chunk that will never be a useful search result. Production semantic chunkers enforce a minimum size or attach headings to the next chunk.
+4. Back on fixed-size, raise overlap to 30 tokens and watch the overhead: every extra token is embedded, stored and possibly retrieved twice.
+
+<ChunkingLab client:visible />
+
+## Production pattern: a structure-aware chunker with stable ids
+
+This chunker splits Markdown along headings, packs paragraphs up to a token limit (falling back to sentences only for oversized paragraphs), and records the heading path. Each chunk gets a **contextual header for embedding** and a **content-derived id**, so re-running ingestion updates existing records instead of creating duplicates:
+
+```ts
+import { createHash } from 'node:crypto';
+
+export interface SourceDocument {
+  id: string;
+  title: string;
+  markdown: string;
+}
+
+export interface ChunkRecord {
+  /** Derived from content, so re-ingesting unchanged text yields the same id (idempotent upserts). */
+  id: string;
+  documentId: string;
+  sectionPath: string[];
+  /** What you show to users and cite. */
+  text: string;
+  /** What you embed: the text prefixed with its title and heading path. */
+  embedText: string;
+  tokens: number;
+}
+
+type CountTokens = (text: string) => number;
+
+const HEADING = /^(#{1,6})[ \t]+(.+)$/gm;
+
+function splitSections(markdown: string): { path: string[]; body: string }[] {
+  const sections: { path: string[]; body: string }[] = [];
+  const headings: string[] = [];
+  let bodyStart = 0;
+  const flush = (end: number) => {
+    const body = markdown.slice(bodyStart, end).trim();
+    if (body) sections.push({ path: headings.filter(Boolean), body });
+  };
+  for (const match of markdown.matchAll(HEADING)) {
+    flush(match.index);
+    const level = match[1].length;
+    headings.length = level - 1; // a new heading closes all deeper ones
+    headings[level - 1] = match[2].trim();
+    bodyStart = match.index + match[0].length;
+  }
+  flush(markdown.length);
+  return sections;
+}
+
+/** Paragraphs (keeping their trailing blank line); sentences only for paragraphs over the limit. */
+function pieces(body: string, maxTokens: number, countTokens: CountTokens): string[] {
+  return body
+    .split(/(?<=\n\n)/)
+    .flatMap((paragraph) => (countTokens(paragraph) <= maxTokens ? [paragraph] : paragraph.split(/(?<=[.!?]\s)/)));
+}
+
+function pack(parts: string[], maxTokens: number, countTokens: CountTokens): string[] {
+  const chunks: string[] = [];
+  let current = '';
+  for (const part of parts) {
+    if (current && countTokens(current + part) > maxTokens) {
+      chunks.push(current.trim());
+      current = '';
+    }
+    current += part; // a single oversized sentence stays whole rather than being cut mid-way
+  }
+  if (current.trim()) chunks.push(current.trim());
+  return chunks;
+}
+
+export function chunkDocument(doc: SourceDocument, maxTokens: number, countTokens: CountTokens): ChunkRecord[] {
+  return splitSections(doc.markdown).flatMap(({ path, body }) =>
+    pack(pieces(body, maxTokens, countTokens), maxTokens, countTokens).map((text) => {
+      const embedText = `${[doc.title, ...path].join(' › ')}\n\n${text}`;
+      return {
+        id: createHash('sha256').update(`${doc.id}\0${path.join('\0')}\0${text}`).digest('hex').slice(0, 24),
+        documentId: doc.id,
+        sectionPath: path,
+        text,
+        embedText,
+        tokens: countTokens(embedText),
+      };
+    }),
+  );
+}
+```
+
+The same pipeline in Python:
+
+```python
+import hashlib
+import re
+from collections.abc import Callable
+from dataclasses import dataclass
+
+CountTokens = Callable[[str], int]
+HEADING = re.compile(r"^(#{1,6})[ \t]+(.+)$", re.MULTILINE)
+
+
+@dataclass(frozen=True)
+class ChunkRecord:
+    id: str
+    document_id: str
+    section_path: tuple[str, ...]
+    text: str
+    embed_text: str
+    tokens: int
+
+
+def split_sections(markdown: str) -> list[tuple[tuple[str, ...], str]]:
+    sections: list[tuple[tuple[str, ...], str]] = []
+    headings: list[str] = []
+    body_start = 0
+
+    def flush(end: int) -> None:
+        if body := markdown[body_start:end].strip():
+            sections.append((tuple(h for h in headings if h), body))
+
+    for match in HEADING.finditer(markdown):
+        flush(match.start())
+        level = len(match.group(1))
+        headings = headings[: level - 1] + [""] * (level - 1 - len(headings))
+        headings.append(match.group(2).strip())
+        body_start = match.end()
+    flush(len(markdown))
+    return sections
+
+
+def pieces(body: str, max_tokens: int, count_tokens: CountTokens) -> list[str]:
+    result: list[str] = []
+    for paragraph in re.split(r"(?<=\n\n)", body):
+        if count_tokens(paragraph) <= max_tokens:
+            result.append(paragraph)
+        else:
+            result.extend(re.split(r"(?<=[.!?]\s)", paragraph))
+    return result
+
+
+def pack(parts: list[str], max_tokens: int, count_tokens: CountTokens) -> list[str]:
+    chunks: list[str] = []
+    current = ""
+    for part in parts:
+        if current and count_tokens(current + part) > max_tokens:
+            chunks.append(current.strip())
+            current = ""
+        current += part
+    if current.strip():
+        chunks.append(current.strip())
+    return chunks
+
+
+def chunk_document(
+    doc_id: str, title: str, markdown: str, max_tokens: int, count_tokens: CountTokens
+) -> list[ChunkRecord]:
+    records: list[ChunkRecord] = []
+    for path, body in split_sections(markdown):
+        for text in pack(pieces(body, max_tokens, count_tokens), max_tokens, count_tokens):
+            embed_text = " › ".join((title, *path)) + "\n\n" + text
+            digest = hashlib.sha256("\0".join((doc_id, *path, text)).encode()).hexdigest()[:24]
+            records.append(
+                ChunkRecord(digest, doc_id, path, text, embed_text, count_tokens(embed_text))
+            )
+    return records
+```
+
+<Callout type="tip" title="Store more metadata than you think you need">
+Keep the source URL, section path, page number, last-modified time, language and access-control groups on every chunk. Metadata is how you filter by tenant or recency, render citations, and delete everything from one document when it changes or must be erased.
+</Callout>
+
+## Failure modes
+
+<FailureMode title="Split rules and exceptions" symptom="The model states a rule confidently but misses the exception that follows it.">
+**Why:** a boundary fell between "refunds are available within 14 days" and "after 14 days, annual subscriptions are not refundable". **Mitigation:** split on paragraph and sentence boundaries, use overlap or contextual headers, and retrieve the parent section for small chunks.
+</FailureMode>
+
+<FailureMode title="Orphaned chunks" symptom="A retrieved chunk is accurate but useless: “This limit can be raised on request.” Which limit? For which plan?">
+**Why:** the chunk's meaning depended on a heading or an earlier paragraph. **Mitigation:** prepend the title and section path to the embedded text, and keep that path as metadata for citations.
+</FailureMode>
+
+<FailureMode title="Garbled tables and layouts" symptom="Numeric questions get wrong answers even though the right page was retrieved.">
+**Why:** extraction flattened a table or interleaved two columns. **Mitigation:** use a layout-aware parser. Turn table rows into self-describing text, and spot-check parsed output for your most important documents.
+</FailureMode>
+
+<FailureMode title="Stale and duplicate content" symptom="Answers cite last year's policy, or the same paragraph fills three of five result slots.">
+**Why:** re-ingestion appended new chunks without removing old ones, or copies of a document were all indexed. **Mitigation:** use content-derived ids and upserts. Delete all chunks of a document before re-indexing it, and deduplicate at ingestion.
+</FailureMode>
+
+<FailureMode title="Chunks too large for the embedding model" symptom="Content at the end of long chunks is never found.">
+**Why:** the embedding model truncated input beyond its limit. **Mitigation:** measure chunk sizes, including contextual headers, with the embedding model's tokenizer, and enforce the limit at ingestion.
+</FailureMode>
