@@ -49,7 +49,7 @@ src/
 
 ## Develop
 
-Requires Node.js 22.12 or later.
+Requires Node.js 22.23.4 or later (Astro 7.4's minimum).
 
 ```sh
 npm install
@@ -57,8 +57,6 @@ npm run dev        # http://localhost:4321/ai-engineering-from-scratch/
 npm test           # unit tests
 npm run build      # type-check (astro check) + static build into dist/
 ```
-
-Astro is pinned to 7.3.x because Astro 7.4 needs Node.js 22.23.4 or later. Unpin it once your Node is upgraded.
 
 ## Adding a lesson
 
